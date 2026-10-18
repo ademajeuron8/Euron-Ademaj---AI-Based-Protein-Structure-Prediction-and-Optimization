@@ -1,0 +1,9 @@
+# IntelliJ local configuration
+.idea/
+*.iml
+
+# Java build output
+out/
+build/
+target/
+*.class
