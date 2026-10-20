@@ -16,18 +16,37 @@ class Position {
 
         return distance == 1;
     }
+
+    boolean isSamePosition(Position other) {
+        return x == other.x && y == other.y && z == other.z;
+    }
 }
 
 public class Main {
     public static void main(String[] args) {
-        Position h1 = new Position(0, 0, 0);
-        Position h2 = new Position(1, 0, 0);
-        Position h3 = new Position(1, 1, 0);
+        Protein validProtein = new Protein();
+        validProtein.addPosition(new Position(0, 0, 0));
+        validProtein.addPosition(new Position(1, 0, 0));
+        validProtein.addPosition(new Position(1, 1, 0));
+        validProtein.addPosition(new Position(0, 1, 0));
+        System.out.println("Struktura e vlefshme: " + validProtein.isValid());
 
-        System.out.println("H1 dhe H2 jane fqinje: "
-                + h1.isNeighbor(h2));
+        Protein overlappingProtein = new Protein();
+        overlappingProtein.addPosition(new Position(0, 0, 0));
+        overlappingProtein.addPosition(new Position(1, 0, 0));
+        overlappingProtein.addPosition(new Position(0, 0, 0));
+        System.out.println("Struktura me mbivendosje: " + overlappingProtein.isValid());
 
-        System.out.println("H1 dhe H3 jane fqinje: "
-                + h1.isNeighbor(h3));
+        Protein disconnectedProtein = new Protein();
+        disconnectedProtein.addPosition(new Position(0, 0, 0));
+        disconnectedProtein.addPosition(new Position(2, 0, 0));
+        System.out.println("Struktura me lidhje te shkeputur: " + disconnectedProtein.isValid());
+
+        Protein emptyProtein = new Protein();
+        System.out.println("Struktura bosh: " + emptyProtein.isValid());
+
+        Protein singlePositionProtein = new Protein();
+        singlePositionProtein.addPosition(new Position(0, 0, 0));
+        System.out.println("Struktura me nje pozicion: " + singlePositionProtein.isValid());
     }
 }
