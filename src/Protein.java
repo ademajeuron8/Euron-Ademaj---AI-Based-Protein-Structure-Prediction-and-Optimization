@@ -31,6 +31,52 @@ public class Protein {
         positions.add(position);
     }
 
+    public Position getPosition(int index) {
+        Position position = positions.get(index);
+        return new Position(position.x, position.y, position.z);
+    }
+
+    public Protein copy() {
+        Protein copiedProtein = new Protein(hpSequence);
+        for (Position position : positions) {
+            copiedProtein.addPosition(new Position(position.x, position.y, position.z));
+        }
+        return copiedProtein;
+    }
+
+    public boolean tryMoveLast(Position newPosition) {
+        if (newPosition == null) {
+            throw new IllegalArgumentException("Pozicioni i ri nuk mund te jete null.");
+        }
+
+        if (!isComplete()) {
+            throw new IllegalStateException("Levizja kerkon nje proteine te plote dhe te vlefshme.");
+        }
+
+        if (positions.size() < 2) {
+            return false;
+        }
+
+        int lastIndex = positions.size() - 1;
+        if (positions.get(lastIndex).isSamePosition(newPosition)) {
+            return false;
+        }
+
+        if (!positions.get(lastIndex - 1).isNeighbor(newPosition)) {
+            return false;
+        }
+
+        for (int i = 0; i < lastIndex; i++) {
+            if (positions.get(i).isSamePosition(newPosition)) {
+                return false;
+            }
+        }
+
+        // Zevendeso pozicionin vetem pasi te kalojne te gjitha kontrollet.
+        positions.set(lastIndex, new Position(newPosition.x, newPosition.y, newPosition.z));
+        return true;
+    }
+
     public boolean isValid() {
         if (positions.isEmpty()) {
             return false;
