@@ -10,9 +10,9 @@ class Position {
     }
 
     boolean isNeighbor(Position other) {
-        int distance = Math.abs(x - other.x)
-                     + Math.abs(y - other.y)
-                     + Math.abs(z - other.z);
+        long distance = Math.abs((long) x - other.x)
+                      + Math.abs((long) y - other.y)
+                      + Math.abs((long) z - other.z);
 
         return distance == 1;
     }

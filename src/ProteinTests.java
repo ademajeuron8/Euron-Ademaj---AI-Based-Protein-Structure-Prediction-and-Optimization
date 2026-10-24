@@ -72,6 +72,7 @@ public class ProteinTests {
 
         demonstrateCopiesAndMoves();
         demonstratePivotRotations();
+        testPositionSafety();
     }
 
     private static void demonstrateCopiesAndMoves() {
@@ -201,6 +202,39 @@ public class ProteinTests {
         } catch (IllegalStateException e) {
             System.out.println("OK: Struktura e plote por e pavlefshme u refuzua: " + e.getMessage());
         }
+    }
+
+    private static void testPositionSafety() {
+        Position suppliedPosition = new Position(0, 0, 0);
+        Protein protein = new Protein("H");
+        protein.addPosition(suppliedPosition);
+        suppliedPosition.x = 5;
+        suppliedPosition.y = -3;
+        suppliedPosition.z = 9;
+        check(protein.getPosition(0).isSamePosition(new Position(0, 0, 0)),
+                "addPosition: ndryshimi i objektit burim nuk ndryshon proteinen");
+
+        Position origin = new Position(0, 0, 0);
+        check(origin.isNeighbor(new Position(1, 0, 0)), "isNeighbor: fqinj ne drejtimin +X");
+        check(origin.isNeighbor(new Position(0, 0, -1)), "isNeighbor: fqinj ne drejtimin -Z");
+        check(!origin.isNeighbor(new Position(0, 0, 0)), "isNeighbor: i njejti pozicion nuk eshte fqinj");
+        check(!origin.isNeighbor(new Position(1, 1, 0)), "isNeighbor: diagonalja nuk eshte fqinje");
+
+        Position minimum = new Position(Integer.MIN_VALUE, 0, 0);
+        Position maximum = new Position(Integer.MAX_VALUE, 0, 0);
+        check(!minimum.isNeighbor(maximum), "isNeighbor: MIN drejt MAX nuk jane fqinje");
+        check(!maximum.isNeighbor(minimum), "isNeighbor: MAX drejt MIN nuk jane fqinje");
+        check(minimum.isNeighbor(new Position(Integer.MIN_VALUE + 1, 0, 0)),
+                "isNeighbor: ruhet fqinjesia prane MIN");
+        check(maximum.isNeighbor(new Position(Integer.MAX_VALUE - 1, 0, 0)),
+                "isNeighbor: ruhet fqinjesia prane MAX");
+        check(!origin.isNeighbor(new Position(Integer.MAX_VALUE, Integer.MAX_VALUE, 3)),
+                "isNeighbor: shuma e distances nuk peson overflow");
+
+        Protein disconnected = new Protein("HH");
+        disconnected.addPosition(minimum);
+        disconnected.addPosition(maximum);
+        check(!disconnected.isValid(), "isValid: lidhja mes MIN dhe MAX eshte e shkeputur");
     }
 
     private static void checkCoordinates(Protein protein, Position[] expectedPositions, String description) {

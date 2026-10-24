@@ -28,7 +28,7 @@ public class Protein {
             throw new IllegalStateException("Numri i pozicioneve nuk mund te tejkaloje gjatesine e sekuences H/P.");
         }
 
-        positions.add(position);
+        positions.add(new Position(position.x, position.y, position.z));
     }
 
     public Position getPosition(int index) {
