@@ -77,6 +77,78 @@ public class Protein {
         return true;
     }
 
+    public boolean tryPivotRotation(int pivotIndex, char axis, int quarterTurns) {
+        if (pivotIndex < 0 || pivotIndex >= positions.size()) {
+            throw new IllegalArgumentException("Indeksi i pivot-it eshte jashte listes.");
+        }
+        if (axis != 'X' && axis != 'Y' && axis != 'Z') {
+            throw new IllegalArgumentException("Boshti duhet te jete X, Y ose Z.");
+        }
+        if (quarterTurns < 1 || quarterTurns > 3) {
+            throw new IllegalArgumentException("Numri i rrotullimeve 90 grade duhet te jete 1, 2 ose 3.");
+        }
+        if (!isComplete()) {
+            throw new IllegalStateException("Rrotullimi kerkon nje proteine te plote dhe te vlefshme.");
+        }
+        if (pivotIndex == positions.size() - 1) {
+            return false;
+        }
+
+        Protein candidate = copy();
+        Position pivot = positions.get(pivotIndex);
+        boolean changed = false;
+
+        for (int i = pivotIndex + 1; i < positions.size(); i++) {
+            Position position = positions.get(i);
+            // long shmang overflow gjate zbritjes dhe rrotullimit.
+            long dx = (long) position.x - pivot.x;
+            long dy = (long) position.y - pivot.y;
+            long dz = (long) position.z - pivot.z;
+
+            for (int turn = 0; turn < quarterTurns; turn++) {
+                long oldDx = dx;
+                long oldDy = dy;
+                long oldDz = dz;
+
+                if (axis == 'X') {
+                    dy = -oldDz;
+                    dz = oldDy;
+                } else if (axis == 'Y') {
+                    dx = oldDz;
+                    dz = -oldDx;
+                } else {
+                    dx = -oldDy;
+                    dy = oldDx;
+                }
+            }
+
+            long newX = pivot.x + dx;
+            long newY = pivot.y + dy;
+            long newZ = pivot.z + dz;
+            if (newX < Integer.MIN_VALUE || newX > Integer.MAX_VALUE
+                    || newY < Integer.MIN_VALUE || newY > Integer.MAX_VALUE
+                    || newZ < Integer.MIN_VALUE || newZ > Integer.MAX_VALUE) {
+                return false;
+            }
+
+            Position rotated = new Position((int) newX, (int) newY, (int) newZ);
+            candidate.positions.set(i, rotated);
+            if (!position.isSamePosition(rotated)) {
+                changed = true;
+            }
+        }
+
+        if (!changed || !candidate.isValid()) {
+            return false;
+        }
+
+        // Origjinali ndryshohet vetem pas validimit; prefiksi mbetet i paprekur.
+        for (int i = pivotIndex + 1; i < positions.size(); i++) {
+            positions.set(i, candidate.positions.get(i));
+        }
+        return true;
+    }
+
     public boolean isValid() {
         if (positions.isEmpty()) {
             return false;
