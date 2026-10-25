@@ -1,3 +1,5 @@
+import java.util.Random;
+
 public class ProteinTests {
     public static void main(String[] args) {
         Protein lineProtein = new Protein("HHHH");
@@ -73,6 +75,9 @@ public class ProteinTests {
         demonstrateCopiesAndMoves();
         demonstratePivotRotations();
         testPositionSafety();
+        testRandomNeighbors();
+        testRandomNeighborSeeds();
+        testRandomNeighborLimits();
     }
 
     private static void demonstrateCopiesAndMoves() {
@@ -235,6 +240,235 @@ public class ProteinTests {
         disconnected.addPosition(minimum);
         disconnected.addPosition(maximum);
         check(!disconnected.isValid(), "isValid: lidhja mes MIN dhe MAX eshte e shkeputur");
+    }
+
+    private static void testRandomNeighbors() {
+        Position[] initial = {
+                new Position(0, 0, 0), new Position(1, 0, 0),
+                new Position(1, 1, 0), new Position(1, 2, 0)
+        };
+        Position[] square = {
+                new Position(0, 0, 0), new Position(1, 0, 0),
+                new Position(1, 1, 0), new Position(0, 1, 0)
+        };
+        Protein original = createProtein("HHHH", initial);
+        boolean nullRejected = false;
+        try {
+            original.createRandomNeighbor(null);
+        } catch (IllegalArgumentException e) {
+            nullRejected = true;
+        }
+        check(nullRejected, "Random neighbor: refuzohet Random null");
+        checkCoordinates(original, initial, "Random neighbor: null nuk ndryshon origjinalin");
+
+        String[] sequences = {"H", "HHHH", "HH", "HHH"};
+        Position[][] invalidPositions = {
+                {},
+                {new Position(0, 0, 0), new Position(1, 0, 0)},
+                {new Position(0, 0, 0), new Position(2, 0, 0)},
+                {new Position(0, 0, 0), new Position(1, 0, 0), new Position(0, 0, 0)}
+        };
+        for (int i = 0; i < sequences.length; i++) {
+            Protein invalid = createProtein(sequences[i], invalidPositions[i]);
+            boolean rejected = false;
+            try {
+                invalid.createRandomNeighbor(new ControlledRandom());
+            } catch (IllegalStateException e) {
+                rejected = true;
+            }
+            check(rejected, "Random neighbor: refuzohet gjendja e pavlefshme ose e paplote " + i);
+            checkCoordinates(invalid, invalidPositions[i], "Random neighbor: gjendja e refuzuar ruhet " + i);
+        }
+
+        Position[] singlePosition = {new Position(0, 0, 0)};
+        Protein single = createProtein("H", singlePosition);
+        check(single.createRandomNeighbor(new ControlledRandom()) == null,
+                "Random neighbor: nje pozicion kthen null pa zgjedhje te rastit");
+        checkCoordinates(single, singlePosition, "Random neighbor: pozicioni i vetem ruhet");
+
+        Protein endpoint = checkRandomAttempt(original, new int[]{0, 1}, initial, square,
+                "Random endpoint pranohet");
+        checkRandomAttempt(original, new int[]{1, 1, 0, 0}, initial, new Position[]{
+                new Position(0, 0, 0), new Position(1, 0, 0),
+                new Position(1, 0, 1), new Position(1, 0, 2)
+        }, "Random pivot X 90 pranohet");
+        checkRandomAttempt(original, new int[]{0, 2}, initial, null,
+                "Random endpoint pa ndryshim refuzohet");
+        checkRandomAttempt(original, new int[]{0, 3}, initial, null,
+                "Random endpoint i zene refuzohet");
+
+        Position[] straight = {
+                new Position(0, 0, 0), new Position(1, 0, 0),
+                new Position(2, 0, 0), new Position(3, 0, 0)
+        };
+        Protein line = createProtein("HHHH", straight);
+        checkRandomAttempt(line, new int[]{1, 1, 0, 0}, straight, null,
+                "Random pivot pa ndryshim refuzohet");
+        checkRandomAttempt(line, new int[]{1, 1, 2, 1}, straight, null,
+                "Random pivot me perplasje refuzohet");
+        checkRandomAttempt(line, new int[]{1, 0, 1, 1}, straight, new Position[]{
+                new Position(0, 0, 0), new Position(-1, 0, 0),
+                new Position(-2, 0, 0), new Position(-3, 0, 0)
+        }, "Random pivot ne indeksin 0 rreth Y 180 pranohet");
+
+        Protein folded = createProtein("HHHH", square);
+        Protein higherEnergyEndpoint = checkRandomAttempt(folded, new int[]{0, 2}, square, initial,
+                "Random endpoint me energji me te larte pranohet");
+        Protein higherEnergyPivot = checkRandomAttempt(folded, new int[]{1, 2, 2, 2}, square, initial,
+                "Random pivot ne indeksin e parafundit rreth Z 270 pranohet");
+        check(folded.calculateEnergy() == -1 && higherEnergyEndpoint.calculateEnergy() == 0
+                        && higherEnergyPivot.calculateEnergy() == 0,
+                "Random neighbor: energjia nuk perdoret per te refuzuar kandidatin");
+
+        Position[] pair = {new Position(0, 0, 0), new Position(1, 0, 0)};
+        Position[] directions = {
+                new Position(1, 0, 0), new Position(-1, 0, 0),
+                new Position(0, 1, 0), new Position(0, -1, 0),
+                new Position(0, 0, 1), new Position(0, 0, -1)
+        };
+        Protein twoPositions = createProtein("HH", pair);
+        for (int direction = 0; direction < directions.length; direction++) {
+            Position[] expected = direction == 0 ? null : new Position[]{pair[0], directions[direction]};
+            checkRandomAttempt(twoPositions, new int[]{0, direction}, pair, expected,
+                    "Random endpoint drejtimi " + direction);
+        }
+
+        check(endpoint.tryMoveLast(new Position(1, 1, 1)), "Random neighbor: kandidati mund te ndryshohet veqmas");
+        checkCoordinates(original, initial, "Random neighbor: ndryshimi i kandidatit nuk prek origjinalin");
+        check(original.tryMoveLast(new Position(0, 1, 0)), "Random neighbor: origjinali mund te ndryshohet veqmas");
+        checkCoordinates(endpoint, new Position[]{
+                new Position(0, 0, 0), new Position(1, 0, 0),
+                new Position(1, 1, 0), new Position(1, 1, 1)
+        }, "Random neighbor: ndryshimi i origjinalit nuk prek kandidatin");
+    }
+
+    private static void testRandomNeighborSeeds() {
+        Position[] initial = {
+                new Position(0, 0, 0), new Position(1, 0, 0),
+                new Position(1, 1, 0), new Position(1, 2, 0)
+        };
+        Protein first = createProtein("HPPH", initial);
+        Protein second = createProtein("HPPH", initial);
+        Protein snapshot = createProtein("HPPH", initial);
+        Random firstRandom = new Random(2025);
+        Random secondRandom = new Random(2025);
+        boolean repeatable = true;
+        boolean validCandidates = true;
+        boolean originalsUnchanged = true;
+        int candidateCount = 0;
+        int nullCount = 0;
+
+        for (int attempt = 0; attempt < 128; attempt++) {
+            Protein firstCandidate = first.createRandomNeighbor(firstRandom);
+            Protein secondCandidate = second.createRandomNeighbor(secondRandom);
+            repeatable &= (firstCandidate == null) == (secondCandidate == null);
+            if (firstCandidate != null && secondCandidate != null) {
+                repeatable &= sameCoordinates(firstCandidate, secondCandidate, initial.length)
+                        && firstCandidate.calculateEnergy() == secondCandidate.calculateEnergy();
+            }
+            if (firstCandidate == null) {
+                nullCount++;
+            } else {
+                candidateCount++;
+                validCandidates &= firstCandidate != first && firstCandidate.isValid()
+                        && firstCandidate.isComplete() && !sameCoordinates(firstCandidate, snapshot, initial.length);
+            }
+            if (secondCandidate != null) {
+                validCandidates &= secondCandidate != second && secondCandidate.isValid()
+                        && secondCandidate.isComplete() && !sameCoordinates(secondCandidate, snapshot, initial.length);
+            }
+            originalsUnchanged &= sameCoordinates(first, snapshot, initial.length)
+                    && sameCoordinates(second, snapshot, initial.length);
+        }
+
+        check(repeatable, "Random neighbor: dy Random me seed 2025 japin seri identike prej 128 thirrjesh");
+        check(validCandidates && candidateCount > 0, "Random neighbor: cdo kandidat eshte i vlefshem, i plote dhe i ndryshuar");
+        check(nullCount > 0, "Random neighbor: seria perfshin edhe perpjekje te refuzuara");
+        check(originalsUnchanged, "Random neighbor: origjinalet ruhen pas cdo thirrjeje ne seri");
+    }
+
+    private static void testRandomNeighborLimits() {
+        for (int axis = 0; axis < 3; axis++) {
+            for (int boundary = 0; boundary < 2; boundary++) {
+                int[] previous = {0, 0, 0};
+                previous[axis] = boundary == 0 ? Integer.MIN_VALUE : Integer.MAX_VALUE;
+                int[] last = previous.clone();
+                last[axis] += boundary == 0 ? 1 : -1;
+                Position[] initial = {
+                        new Position(previous[0], previous[1], previous[2]),
+                        new Position(last[0], last[1], last[2])
+                };
+                Protein original = createProtein("HH", initial);
+                int outwardDirection = 2 * axis + (boundary == 0 ? 1 : 0);
+                checkRandomAttempt(original, new int[]{0, outwardDirection}, initial, null,
+                        "Random endpoint jashte int, boshti " + axis + ", kufiri " + boundary);
+
+                int perpendicularAxis = (axis + 1) % 3;
+                int[] proposed = previous.clone();
+                proposed[perpendicularAxis] = 1;
+                checkRandomAttempt(original, new int[]{0, 2 * perpendicularAxis}, initial, new Position[]{
+                        initial[0], new Position(proposed[0], proposed[1], proposed[2])
+                }, "Random endpoint i vlefshem prane kufirit, boshti " + axis + ", kufiri " + boundary);
+            }
+        }
+
+        Position[] nearMaximum = {
+                new Position(Integer.MAX_VALUE, 0, 0), new Position(Integer.MAX_VALUE - 1, 0, 0)
+        };
+        Protein original = createProtein("HH", nearMaximum);
+        checkRandomAttempt(original, new int[]{1, 0, 2, 1}, nearMaximum, null,
+                "Random pivot jashte int refuzohet");
+        checkRandomAttempt(original, new int[]{1, 0, 2, 0}, nearMaximum, new Position[]{
+                nearMaximum[0], new Position(Integer.MAX_VALUE, -1, 0)
+        }, "Random pivot i vlefshem prane kufirit pranohet");
+    }
+
+    private static Protein checkRandomAttempt(Protein original, int[] choices, Position[] initial,
+                                             Position[] expected, String description) {
+        ControlledRandom random = new ControlledRandom(choices);
+        Protein candidate = original.createRandomNeighbor(random);
+        check(random.index == choices.length, description + ": vetem nje perpjekje");
+        checkCoordinates(original, initial, description + ": origjinali ruhet");
+        if (expected == null) {
+            check(candidate == null, description + ": kthehet null");
+        } else {
+            check(candidate != null && candidate != original && candidate.isValid() && candidate.isComplete()
+                            && !sameCoordinates(candidate, original, initial.length),
+                    description + ": kandidat i plote, i vlefshem dhe i ndryshuar");
+            checkCoordinates(candidate, expected, description + ": koordinatat e kandidatit");
+        }
+        return candidate;
+    }
+
+    private static boolean sameCoordinates(Protein first, Protein second, int count) {
+        for (int i = 0; i < count; i++) {
+            if (!first.getPosition(i).isSamePosition(second.getPosition(i))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static class ControlledRandom extends Random {
+        private final int[] choices;
+        private int index;
+
+        ControlledRandom(int... choices) {
+            super(0);
+            this.choices = choices;
+        }
+
+        @Override
+        public int nextInt(int bound) {
+            if (index >= choices.length) {
+                throw new AssertionError("Zgjedhje shtese e rastit: nuk lejohet riprovimi.");
+            }
+            int choice = choices[index++];
+            if (choice < 0 || choice >= bound) {
+                throw new AssertionError("Zgjedhja e kontrolluar eshte jashte kufirit " + bound);
+            }
+            return choice;
+        }
     }
 
     private static void checkCoordinates(Protein protein, Position[] expectedPositions, String description) {

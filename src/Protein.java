@@ -1,4 +1,5 @@
 import java.util.ArrayList;
+import java.util.Random;
 
 public class Protein {
     private final String hpSequence;
@@ -147,6 +148,61 @@ public class Protein {
             positions.set(i, candidate.positions.get(i));
         }
         return true;
+    }
+
+    public Protein createRandomNeighbor(Random random) {
+        if (random == null) {
+            throw new IllegalArgumentException("Random nuk mund te jete null.");
+        }
+        if (!isComplete()) {
+            throw new IllegalStateException("Kandidati kerkon nje proteine te plote dhe te vlefshme.");
+        }
+        if (positions.size() < 2) {
+            return null;
+        }
+
+        Protein candidate = copy();
+        // Zgjidh vetem nje lloj levizjeje dhe bej vetem nje perpjekje.
+        if (random.nextInt(2) == 0) {
+            Position previous = positions.get(positions.size() - 2);
+            long x = previous.x;
+            long y = previous.y;
+            long z = previous.z;
+            int direction = random.nextInt(6);
+
+            if (direction == 0) {
+                x++;
+            } else if (direction == 1) {
+                x--;
+            } else if (direction == 2) {
+                y++;
+            } else if (direction == 3) {
+                y--;
+            } else if (direction == 4) {
+                z++;
+            } else {
+                z--;
+            }
+
+            if (x < Integer.MIN_VALUE || x > Integer.MAX_VALUE
+                    || y < Integer.MIN_VALUE || y > Integer.MAX_VALUE
+                    || z < Integer.MIN_VALUE || z > Integer.MAX_VALUE) {
+                return null;
+            }
+            if (candidate.tryMoveLast(new Position((int) x, (int) y, (int) z))) {
+                return candidate;
+            }
+        } else {
+            int pivotIndex = random.nextInt(positions.size() - 1);
+            char[] axes = {'X', 'Y', 'Z'};
+            char axis = axes[random.nextInt(axes.length)];
+            int quarterTurns = random.nextInt(3) + 1;
+            if (candidate.tryPivotRotation(pivotIndex, axis, quarterTurns)) {
+                return candidate;
+            }
+        }
+
+        return null;
     }
 
     public boolean isValid() {
