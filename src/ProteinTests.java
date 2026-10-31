@@ -78,6 +78,7 @@ public class ProteinTests {
         testRandomNeighbors();
         testRandomNeighborSeeds();
         testRandomNeighborLimits();
+        testAcceptanceRule();
     }
 
     private static void demonstrateCopiesAndMoves() {
@@ -468,6 +469,96 @@ public class ProteinTests {
                 throw new AssertionError("Zgjedhja e kontrolluar eshte jashte kufirit " + bound);
             }
             return choice;
+        }
+    }
+
+    private static void testAcceptanceRule() {
+        ControlledDoubleRandom noDraws = new ControlledDoubleRandom();
+        check(SimulatedAnnealing.shouldAccept(-2, -3, 2, noDraws),
+                "SA acceptance: permiresimi pranohet pa nextDouble");
+        check(SimulatedAnnealing.shouldAccept(-3, -3, 2, noDraws),
+                "SA acceptance: barazimi pranohet pa nextDouble");
+        check(SimulatedAnnealing.shouldAccept(-2, -3, 0, noDraws),
+                "SA acceptance: permiresimi pranohet ne temperature zero");
+        check(SimulatedAnnealing.shouldAccept(-3, -3, 0, noDraws),
+                "SA acceptance: barazimi pranohet ne temperature zero");
+        check(!SimulatedAnnealing.shouldAccept(-3, -2, 0, noDraws),
+                "SA acceptance: perkeqesimi refuzohet ne temperature zero pa nextDouble");
+
+        ControlledDoubleRandom acceptRandom = new ControlledDoubleRandom(0.5);
+        check(SimulatedAnnealing.shouldAccept(-3, -2, 2, acceptRandom) && acceptRandom.index == 1,
+                "SA acceptance: 0.5 pranohet me nje nextDouble");
+        ControlledDoubleRandom rejectRandom = new ControlledDoubleRandom(0.7);
+        check(!SimulatedAnnealing.shouldAccept(-3, -2, 2, rejectRandom) && rejectRandom.index == 1,
+                "SA acceptance: 0.7 refuzohet me nje nextDouble");
+        double probability = Math.exp(-1.0 / 2.0);
+        ControlledDoubleRandom equalProbability = new ControlledDoubleRandom(probability);
+        check(!SimulatedAnnealing.shouldAccept(-3, -2, 2, equalProbability) && equalProbability.index == 1,
+                "SA acceptance: vlera e barabarte me probabilitetin refuzohet");
+
+        boolean nullRejected = false;
+        try {
+            SimulatedAnnealing.shouldAccept(-2, -3, 2, null);
+        } catch (IllegalArgumentException e) {
+            nullRejected = true;
+        }
+        check(nullRejected, "SA acceptance: Random null refuzohet edhe per permiresim");
+
+        double[] invalidTemperatures = {-1, Double.NaN, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY};
+        for (double temperature : invalidTemperatures) {
+            boolean rejected = false;
+            try {
+                SimulatedAnnealing.shouldAccept(-2, -3, temperature, noDraws);
+            } catch (IllegalArgumentException e) {
+                rejected = true;
+            }
+            check(rejected, "SA acceptance: temperatura " + temperature + " refuzohet edhe per permiresim");
+        }
+
+        ControlledDoubleRandom extremeWorsening = new ControlledDoubleRandom(0.0);
+        check(!SimulatedAnnealing.shouldAccept(Integer.MIN_VALUE, Integer.MAX_VALUE, 2, extremeWorsening)
+                        && extremeWorsening.index == 1,
+                "SA acceptance: MIN drejt MAX refuzohet pa overflow, edhe kur random jep zero");
+        check(SimulatedAnnealing.shouldAccept(Integer.MAX_VALUE, Integer.MIN_VALUE, 2, noDraws),
+                "SA acceptance: MAX drejt MIN pranohet pa overflow dhe pa nextDouble");
+
+        double fullEnergyRange = (double) ((long) Integer.MAX_VALUE - Integer.MIN_VALUE);
+        ControlledDoubleRandom acceptExtreme = new ControlledDoubleRandom(0.3);
+        check(SimulatedAnnealing.shouldAccept(Integer.MIN_VALUE, Integer.MAX_VALUE, fullEnergyRange, acceptExtreme)
+                        && acceptExtreme.index == 1,
+                "SA acceptance: diferenca e plote int lejon pranimin kur random eshte nen exp(-1)");
+        ControlledDoubleRandom rejectExtreme = new ControlledDoubleRandom(0.4);
+        check(!SimulatedAnnealing.shouldAccept(Integer.MIN_VALUE, Integer.MAX_VALUE, fullEnergyRange, rejectExtreme)
+                        && rejectExtreme.index == 1,
+                "SA acceptance: diferenca e plote int refuzohet kur random eshte mbi exp(-1)");
+
+        check(!SimulatedAnnealing.shouldAccept(-3, -2, -0.0, noDraws),
+                "SA acceptance: zero me shenje negative trajtohet si zero");
+        ControlledDoubleRandom tinyTemperature = new ControlledDoubleRandom(0.0);
+        check(!SimulatedAnnealing.shouldAccept(-3, -2, Double.MIN_VALUE, tinyTemperature)
+                        && tinyTemperature.index == 1,
+                "SA acceptance: temperatura pozitive minimale lejohet dhe probabiliteti zero refuzon");
+        ControlledDoubleRandom largeTemperature = new ControlledDoubleRandom(0.7);
+        check(SimulatedAnnealing.shouldAccept(-3, -2, Double.MAX_VALUE, largeTemperature)
+                        && largeTemperature.index == 1,
+                "SA acceptance: temperatura maksimale e fundme lejohet");
+    }
+
+    private static class ControlledDoubleRandom extends Random {
+        private final double[] values;
+        private int index;
+
+        ControlledDoubleRandom(double... values) {
+            super(0);
+            this.values = values;
+        }
+
+        @Override
+        public double nextDouble() {
+            if (index >= values.length) {
+                throw new AssertionError("nextDouble nuk duhet te thirret pa nje vlere te parashikuar.");
+            }
+            return values[index++];
         }
     }
 
