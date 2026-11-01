@@ -79,6 +79,9 @@ public class ProteinTests {
         testRandomNeighborSeeds();
         testRandomNeighborLimits();
         testAcceptanceRule();
+        testOptimizationParameters();
+        testOptimizationResults();
+        testOptimizationControlledSteps();
     }
 
     private static void demonstrateCopiesAndMoves() {
@@ -559,6 +562,176 @@ public class ProteinTests {
                 throw new AssertionError("nextDouble nuk duhet te thirret pa nje vlere te parashikuar.");
             }
             return values[index++];
+        }
+    }
+
+    private static void testOptimizationParameters() {
+        Protein valid = createSquare("HHHH");
+        Random unusedRandom = new ControlledAnnealingRandom(new int[0]);
+        checkInvalidOptimization(null, 0, 2, 0.5, unusedRandom, "proteina null");
+        checkInvalidOptimization(valid, 0, 2, 0.5, null, "Random null");
+        checkInvalidOptimization(new Protein("H"), 0, 2, 0.5, unusedRandom, "struktura bosh");
+        checkInvalidOptimization(createProtein("HHHH", new Position[]{
+                new Position(0, 0, 0), new Position(1, 0, 0)
+        }), 0, 2, 0.5, unusedRandom, "struktura e paplote");
+        checkInvalidOptimization(createProtein("HH", new Position[]{
+                new Position(0, 0, 0), new Position(2, 0, 0)
+        }), 0, 2, 0.5, unusedRandom, "lidhja e shkeputur");
+        checkInvalidOptimization(createProtein("HHH", new Position[]{
+                new Position(0, 0, 0), new Position(1, 0, 0), new Position(0, 0, 0)
+        }), 0, 2, 0.5, unusedRandom, "mbivendosja");
+        checkInvalidOptimization(valid, -1, 2, 0.5, unusedRandom, "numri negativ i perpjekjeve");
+
+        double[] invalidTemperatures = {-1, Double.NaN, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY};
+        for (double temperature : invalidTemperatures) {
+            checkInvalidOptimization(valid, 0, temperature, 0.5, unusedRandom, "temperatura " + temperature);
+        }
+        double[] invalidRates = {-0.1, 0, 1, 1.1, Double.NaN, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY};
+        for (double rate : invalidRates) {
+            checkInvalidOptimization(valid, 0, 2, rate, unusedRandom, "koeficienti i ftohjes " + rate);
+        }
+        checkCoordinates(valid, new Position[]{
+                new Position(0, 0, 0), new Position(1, 0, 0),
+                new Position(1, 1, 0), new Position(0, 1, 0)
+        }, "SA optimize: parametrat e refuzuar nuk ndryshojne origjinalin");
+    }
+
+    private static void checkInvalidOptimization(Protein initial, int iterations, double temperature,
+                                                 double rate, Random random, String description) {
+        boolean rejected = false;
+        try {
+            SimulatedAnnealing.optimize(initial, iterations, temperature, rate, random);
+        } catch (IllegalArgumentException e) {
+            rejected = true;
+        }
+        check(rejected, "SA optimize: refuzohet " + description);
+    }
+
+    private static void testOptimizationResults() {
+        Position[] initialPositions = {
+                new Position(0, 0, 0), new Position(1, 0, 0),
+                new Position(1, 1, 0), new Position(1, 2, 0)
+        };
+        Protein initial = createProtein("HHHH", initialPositions);
+        ControlledAnnealingRandom zeroRandom = new ControlledAnnealingRandom(new int[0]);
+        Protein zeroResult = SimulatedAnnealing.optimize(initial, 0, 2, 0.995, zeroRandom);
+        check(zeroResult != initial && sameCoordinates(zeroResult, initial, initialPositions.length),
+                "SA optimize: zero iteracione japin objekt te ri me koordinata te njejta");
+        check(zeroResult.isComplete() && zeroResult.calculateEnergy() == initial.calculateEnergy(),
+                "SA optimize: zero iteracione ruajne vlefshmerine dhe energjine");
+        check(zeroRandom.intIndex == 0 && zeroRandom.doubleIndex == 0,
+                "SA optimize: zero iteracione nuk perdorin rastesi");
+        check(zeroResult.tryMoveLast(new Position(0, 1, 0)), "SA optimize: kopja me zero iteracione ndryshohet veqmas");
+        checkCoordinates(initial, initialPositions, "SA optimize: ndryshimi i kopjes nuk prek origjinalin");
+
+        Protein identicalInitial = createProtein("HHHH", initialPositions);
+        Protein best = SimulatedAnnealing.optimize(initial, 1000, 2, 0.995, new Random(2025));
+        Protein repeated = SimulatedAnnealing.optimize(identicalInitial, 1000, 2, 0.995, new Random(2025));
+        check(best.isValid() && best.isComplete() && best.calculateEnergy() <= initial.calculateEnergy()
+                        && repeated.isValid() && repeated.isComplete()
+                        && repeated.calculateEnergy() <= identicalInitial.calculateEnergy(),
+                "SA optimize: rezultatet jane te vlefshme, te plota dhe jo me keq se fillimi");
+        check(sameCoordinates(best, repeated, initialPositions.length)
+                        && best.calculateEnergy() == repeated.calculateEnergy(),
+                "SA optimize: seed dhe parametrat identike japin rezultat identik");
+        check(best != initial && repeated != identicalInitial && best != repeated,
+                "SA optimize: rezultatet jane objekte te pavarura");
+        checkCoordinates(initial, initialPositions, "SA optimize: ekzekutimi i pare nuk ndryshon inputin");
+        checkCoordinates(identicalInitial, initialPositions, "SA optimize: ekzekutimi i dyte nuk ndryshon inputin");
+
+        Position[] singlePosition = {new Position(0, 0, 0)};
+        Protein single = createProtein("H", singlePosition);
+        ControlledAnnealingRandom singleRandom = new ControlledAnnealingRandom(new int[0]);
+        Protein singleResult = SimulatedAnnealing.optimize(single, 7, 2, 0.5, singleRandom);
+        check(singleResult != single && singleResult.isValid() && singleResult.isComplete()
+                        && singleResult.calculateEnergy() == 0,
+                "SA optimize: nje pozicion perfundon normalisht me propozime null");
+        checkCoordinates(singleResult, singlePosition, "SA optimize: rezultati me nje pozicion ruan koordinatat");
+        checkCoordinates(single, singlePosition, "SA optimize: origjinali me nje pozicion ruhet");
+        check(singleRandom.intIndex == 0 && singleRandom.doubleIndex == 0,
+                "SA optimize: propozimet per nje pozicion nuk kerkojne rastesi");
+    }
+
+    private static void testOptimizationControlledSteps() {
+        Position[] bent = {
+                new Position(0, 0, 0), new Position(1, 0, 0),
+                new Position(1, 1, 0), new Position(1, 2, 0)
+        };
+        Position[] square = {
+                new Position(0, 0, 0), new Position(1, 0, 0),
+                new Position(1, 1, 0), new Position(0, 1, 0)
+        };
+        Protein initial = createProtein("HHHH", bent);
+        // Permiresim ne katror, perkeqesim i pranuar, pastaj propozim pa ndryshim nga current.
+        ControlledAnnealingRandom bestRandom = new ControlledAnnealingRandom(new int[]{0, 1, 0, 2, 0, 2}, 0.0);
+        Protein best = SimulatedAnnealing.optimize(initial, 3, 2, 0.5, bestRandom);
+        check(bestRandom.intIndex == 6 && bestRandom.doubleIndex == 1,
+                "SA optimize: kryhen saktesisht 3 perpjekje dhe current pranon perkeqesimin");
+        check(best.isComplete() && best.calculateEnergy() == -1,
+                "SA optimize: kthehet best me energji -1, edhe kur current perfundon me energji 0");
+        checkCoordinates(best, square, "SA optimize: ruhet struktura me e mire");
+        checkCoordinates(initial, bent, "SA optimize: hapat e kontrolluar nuk ndryshojne inputin");
+
+        Protein folded = createProtein("HHHH", square);
+        // Hapi i pare eshte null. Me T=1 dhe me pas T=0.5, vlera 0.5 refuzon dy perkeqesimet.
+        ControlledAnnealingRandom coolingRandom = new ControlledAnnealingRandom(new int[]{0, 1, 0, 2, 0, 2}, 0.5, 0.5);
+        Protein cooled = SimulatedAnnealing.optimize(folded, 3, 2, 0.5, coolingRandom);
+        check(coolingRandom.intIndex == 6 && coolingRandom.doubleIndex == 2,
+                "SA optimize: ftohja ndodh edhe pas null dhe te dy perkeqesimet refuzohen");
+        checkCoordinates(cooled, square, "SA optimize: ftohja ruan strukturen e pritur");
+        checkCoordinates(folded, square, "SA optimize: ftohja nuk ndryshon inputin");
+
+        // Me temperaturen fillestare 2, vlera 0.5 pranon perkeqesimin ne hapin e pare.
+        ControlledAnnealingRandom firstTemperature = new ControlledAnnealingRandom(new int[]{0, 2, 0, 2}, 0.5);
+        Protein firstResult = SimulatedAnnealing.optimize(folded, 2, 2, 0.5, firstTemperature);
+        check(firstTemperature.intIndex == 4 && firstTemperature.doubleIndex == 1,
+                "SA optimize: hapi i pare perdor temperaturen fillestare dhe hapi pasues numeron null");
+        checkCoordinates(firstResult, square, "SA optimize: best ruhet pas perkeqesimit te pare");
+
+        ControlledAnnealingRandom underflowRandom = new ControlledAnnealingRandom(new int[]{0, 1, 0, 2});
+        Protein underflowResult = SimulatedAnnealing.optimize(folded, 2, Double.MIN_VALUE, 0.5, underflowRandom);
+        check(underflowRandom.intIndex == 4 && underflowRandom.doubleIndex == 0,
+                "SA optimize: vazhdon pas renies se temperatures ne zero dhe refuzon pa nextDouble");
+        checkCoordinates(underflowResult, square, "SA optimize: temperatura zero ruan best");
+
+        ControlledAnnealingRandom zeroRandom = new ControlledAnnealingRandom(new int[]{0, 2});
+        Protein zeroResult = SimulatedAnnealing.optimize(folded, 1, 0, 0.5, zeroRandom);
+        check(zeroRandom.intIndex == 2 && zeroRandom.doubleIndex == 0 && zeroResult.isComplete(),
+                "SA optimize: temperatura fillestare zero lejohet dhe nuk kerkon nextDouble");
+        checkCoordinates(zeroResult, square, "SA optimize: perkeqesimi ne temperature zero refuzohet");
+        checkCoordinates(folded, square, "SA optimize: inputi ruhet pas te gjitha rasteve te kontrolluara");
+    }
+
+    private static class ControlledAnnealingRandom extends Random {
+        private final int[] choices;
+        private final double[] values;
+        private int intIndex;
+        private int doubleIndex;
+
+        ControlledAnnealingRandom(int[] choices, double... values) {
+            super(0);
+            this.choices = choices;
+            this.values = values;
+        }
+
+        @Override
+        public int nextInt(int bound) {
+            if (intIndex >= choices.length) {
+                throw new AssertionError("Zgjedhje int shtese gjate optimizimit.");
+            }
+            int choice = choices[intIndex++];
+            if (choice < 0 || choice >= bound) {
+                throw new AssertionError("Zgjedhja int e optimizimit eshte jashte kufirit " + bound);
+            }
+            return choice;
+        }
+
+        @Override
+        public double nextDouble() {
+            if (doubleIndex >= values.length) {
+                throw new AssertionError("nextDouble shtese gjate optimizimit.");
+            }
+            return values[doubleIndex++];
         }
     }
 
