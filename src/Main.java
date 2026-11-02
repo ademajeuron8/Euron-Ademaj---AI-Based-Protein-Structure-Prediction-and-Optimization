@@ -1,3 +1,5 @@
+import java.util.Random;
+
 class Position {
     int x;
     int y;
@@ -24,19 +26,21 @@ class Position {
 
 public class Main {
     public static void main(String[] args) {
-        Protein protein = new Protein("HHHH");
-        for (int i = 0; i < 4; i++) {
+        String hpSequence = "HHHH";
+        Protein protein = new Protein(hpSequence);
+        for (int i = 0; i < hpSequence.length(); i++) {
             protein.addPosition(new Position(i, 0, 0));
         }
 
-        System.out.println("Rrotullimi rreth Z u pranua: "
-                + protein.tryPivotRotation(1, 'Z', 1));
-        for (int i = 0; i < 4; i++) {
-            Position position = protein.getPosition(i);
+        System.out.println("Energjia fillestare: " + protein.calculateEnergy());
+        Protein best = SimulatedAnnealing.optimize(protein, 1000, 2.0, 0.995, new Random(2025));
+        System.out.println("Energjia me e mire: " + best.calculateEnergy());
+        for (int i = 0; i < hpSequence.length(); i++) {
+            Position position = best.getPosition(i);
             System.out.println("Pozicioni " + i + ": (" + position.x
                     + "," + position.y + "," + position.z + ")");
         }
-        System.out.println("Struktura e plote dhe e vlefshme: " + protein.isComplete());
-        System.out.println("Energjia: " + protein.calculateEnergy());
+        System.out.println("E plote: " + best.isComplete());
+        System.out.println("E vlefshme: " + best.isValid());
     }
 }
