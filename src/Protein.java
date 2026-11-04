@@ -205,6 +205,53 @@ public class Protein {
         return null;
     }
 
+    public ArrayList<Protein> createExtensions() {
+        ArrayList<Protein> extensions = new ArrayList<>();
+        if (positions.isEmpty()) {
+            Protein first = copy();
+            first.addPosition(new Position(0, 0, 0));
+            extensions.add(first);
+            return extensions;
+        }
+        if (!isValid()) {
+            throw new IllegalStateException("Zgjatja kerkon nje strukture te vlefshme.");
+        }
+        if (positions.size() == hpSequence.length()) {
+            return extensions;
+        }
+
+        Position last = positions.get(positions.size() - 1);
+        int[][] directions = {
+                {1, 0, 0}, {-1, 0, 0}, {0, 1, 0},
+                {0, -1, 0}, {0, 0, 1}, {0, 0, -1}
+        };
+        for (int[] direction : directions) {
+            long x = (long) last.x + direction[0];
+            long y = (long) last.y + direction[1];
+            long z = (long) last.z + direction[2];
+            if (x < Integer.MIN_VALUE || x > Integer.MAX_VALUE
+                    || y < Integer.MIN_VALUE || y > Integer.MAX_VALUE
+                    || z < Integer.MIN_VALUE || z > Integer.MAX_VALUE) {
+                continue;
+            }
+
+            Position next = new Position((int) x, (int) y, (int) z);
+            boolean occupied = false;
+            for (Position position : positions) {
+                if (position.isSamePosition(next)) {
+                    occupied = true;
+                    break;
+                }
+            }
+            if (!occupied) {
+                Protein extension = copy();
+                extension.addPosition(next);
+                extensions.add(extension);
+            }
+        }
+        return extensions;
+    }
+
     public boolean isValid() {
         if (positions.isEmpty()) {
             return false;

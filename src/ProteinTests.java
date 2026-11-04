@@ -1,3 +1,4 @@
+import java.util.ArrayList;
 import java.util.Random;
 
 public class ProteinTests {
@@ -82,6 +83,7 @@ public class ProteinTests {
         testOptimizationParameters();
         testOptimizationResults();
         testOptimizationControlledSteps();
+        testExtensions();
     }
 
     private static void demonstrateCopiesAndMoves() {
@@ -732,6 +734,114 @@ public class ProteinTests {
                 throw new AssertionError("nextDouble shtese gjate optimizimit.");
             }
             return values[doubleIndex++];
+        }
+    }
+
+    private static void testExtensions() {
+        Position origin = new Position(0, 0, 0);
+        Protein empty = new Protein("HHH");
+        ArrayList<Protein> first = empty.createExtensions();
+        checkExtensionList(first, new Position[0], new Position[]{origin}, false,
+                "Extensions: struktura bosh jep vetem origjinen");
+        check(!hasPosition(empty, 0), "Extensions: struktura fillestare mbetet bosh");
+
+        Protein one = first.get(0);
+        Position[] directions = {
+                new Position(1, 0, 0), new Position(-1, 0, 0),
+                new Position(0, 1, 0), new Position(0, -1, 0),
+                new Position(0, 0, 1), new Position(0, 0, -1)
+        };
+        ArrayList<Protein> fromOrigin = one.createExtensions();
+        checkExtensionList(fromOrigin, new Position[]{origin}, directions, false,
+                "Extensions: gjashte zgjatje nga origjina ne rendin e drejtimeve");
+        ArrayList<Protein> repeated = one.createExtensions();
+        boolean sameOrder = repeated.size() == fromOrigin.size();
+        for (int i = 0; sameOrder && i < repeated.size(); i++) {
+            sameOrder = sameCoordinates(fromOrigin.get(i), repeated.get(i), 2);
+        }
+        check(sameOrder, "Extensions: thirrjet e perseritura ruajne rendin");
+
+        Protein east = fromOrigin.get(0);
+        Protein west = fromOrigin.get(1);
+        Position[] eastPrefix = {origin, directions[0]};
+        ArrayList<Protein> completed = east.createExtensions();
+        checkExtensionList(completed, eastPrefix, new Position[]{
+                new Position(2, 0, 0), new Position(1, 1, 0), new Position(1, -1, 0),
+                new Position(1, 0, 1), new Position(1, 0, -1)
+        }, true, "Extensions: pese zgjatje te plota, pa mbivendosje me origjinen");
+        check(completed.get(0).createExtensions().isEmpty(), "Extensions: struktura e plote jep liste bosh");
+        check(!hasPosition(east, 2) && !hasPosition(one, 1),
+                "Extensions: gjenerimi nuk shton pozicione tek origjinali");
+
+        east.addPosition(new Position(2, 0, 0));
+        check(east.isComplete() && !hasPosition(one, 1) && !hasPosition(west, 2),
+                "Extensions: ndryshimi i nje kandidati nuk prek origjinalin ose kandidatin tjeter");
+        one.addPosition(new Position(0, 1, 0));
+        checkCoordinates(west, new Position[]{origin, directions[1]},
+                "Extensions: ndryshimi i origjinalit nuk prek kopjen");
+
+        Protein[] invalid = {
+                createProtein("HHH", new Position[]{origin, directions[0], origin}),
+                createProtein("HHH", new Position[]{origin, new Position(2, 0, 0)})
+        };
+        String[] reasons = {"mbivendosjen", "lidhjen e shkeputur"};
+        for (int i = 0; i < invalid.length; i++) {
+            boolean rejected = false;
+            try {
+                invalid[i].createExtensions();
+            } catch (IllegalStateException e) {
+                rejected = true;
+            }
+            check(rejected, "Extensions: refuzon " + reasons[i]);
+        }
+
+        Position[] trappedPositions = {
+                new Position(1, 0, 0), new Position(1, 1, 0),
+                new Position(0, 1, 0), new Position(0, 1, 1),
+                new Position(0, 0, 1), new Position(-1, 0, 1),
+                new Position(-1, 0, 0), new Position(-1, -1, 0),
+                new Position(0, -1, 0), new Position(0, -1, -1),
+                new Position(0, 0, -1), origin
+        };
+        Protein trapped = createProtein("H".repeat(trappedPositions.length + 1), trappedPositions);
+        check(trapped.isValid() && !trapped.isComplete() && trapped.createExtensions().isEmpty(),
+                "Extensions: skaji i bllokuar jep liste bosh");
+
+        int min = Integer.MIN_VALUE;
+        int max = Integer.MAX_VALUE;
+        Position[] boundary = {new Position(max, min, max)};
+        checkExtensionList(createProtein("HH", boundary).createExtensions(), boundary, new Position[]{
+                new Position(max - 1, min, max), new Position(max, min + 1, max),
+                new Position(max, min, max - 1)
+        }, true, "Extensions: drejtimet jashte kufijve MAX/MIN/MAX kapercen");
+        Position[] oppositeBoundary = {new Position(min, max, min)};
+        checkExtensionList(createProtein("HH", oppositeBoundary).createExtensions(), oppositeBoundary, new Position[]{
+                new Position(min + 1, max, min), new Position(min, max - 1, min),
+                new Position(min, max, min + 1)
+        }, true, "Extensions: drejtimet jashte kufijve MIN/MAX/MIN kapercen");
+    }
+
+    private static void checkExtensionList(ArrayList<Protein> extensions, Position[] prefix,
+                                           Position[] expectedNext, boolean complete, String description) {
+        boolean matches = extensions.size() == expectedNext.length;
+        for (int i = 0; matches && i < extensions.size(); i++) {
+            Protein candidate = extensions.get(i);
+            matches = candidate.isValid() && candidate.isComplete() == complete
+                    && hasPosition(candidate, prefix.length) && !hasPosition(candidate, prefix.length + 1)
+                    && candidate.getPosition(prefix.length).isSamePosition(expectedNext[i]);
+            for (int j = 0; matches && j < prefix.length; j++) {
+                matches = candidate.getPosition(j).isSamePosition(prefix[j]);
+            }
+        }
+        check(matches, description);
+    }
+
+    private static boolean hasPosition(Protein protein, int index) {
+        try {
+            protein.getPosition(index);
+            return true;
+        } catch (IndexOutOfBoundsException e) {
+            return false;
         }
     }
 
