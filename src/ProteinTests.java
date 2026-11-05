@@ -1,4 +1,5 @@
 import java.util.ArrayList;
+import java.util.List;
 import java.util.Random;
 
 public class ProteinTests {
@@ -84,6 +85,7 @@ public class ProteinTests {
         testOptimizationResults();
         testOptimizationControlledSteps();
         testExtensions();
+        testBeamSelection();
     }
 
     private static void demonstrateCopiesAndMoves() {
@@ -843,6 +845,111 @@ public class ProteinTests {
         } catch (IndexOutOfBoundsException e) {
             return false;
         }
+    }
+
+    private static void testBeamSelection() {
+        Position[] linePositions = {
+                new Position(0, 0, 0), new Position(1, 0, 0),
+                new Position(2, 0, 0), new Position(3, 0, 0)
+        };
+        Protein line = createProtein("HHHH", linePositions);
+        Protein square = createSquare("HHHH");
+        Protein bent = createProtein("HHHH", new Position[]{
+                new Position(0, 0, 0), new Position(1, 0, 0),
+                new Position(1, 1, 0), new Position(1, 2, 0)
+        });
+        Protein translatedSquare = createProtein("HHHH", new Position[]{
+                new Position(4, 0, 0), new Position(5, 0, 0),
+                new Position(5, 1, 0), new Position(4, 1, 0)
+        });
+        check(line.calculateEnergy() == 0 && bent.calculateEnergy() == 0
+                        && square.calculateEnergy() == -1 && translatedSquare.calculateEnergy() == -1,
+                "Beam selection: strukturat e testit kane energjite e njohura");
+
+        // Lista e pandryshueshme kontrollon edhe qe perzgjedhja nuk e rendit hyrjen ne vend.
+        List<Protein> input = List.of(line, square, bent, translatedSquare);
+        Protein[] originalOrder = {line, square, bent, translatedSquare};
+        Protein[] snapshots = {line.copy(), square.copy(), bent.copy(), translatedSquare.copy()};
+        checkInvalidBeamSelection(null, 1, "listen null");
+        checkInvalidBeamSelection(input, 0, "beam width zero");
+        checkInvalidBeamSelection(input, -1, "beam width negativ");
+        ArrayList<Protein> withNull = new ArrayList<>(input);
+        withNull.add(null);
+        checkInvalidBeamSelection(withNull, 1, "elementin null edhe pas kandidateve te vlefshem");
+
+        ArrayList<Protein> empty = new ArrayList<>();
+        ArrayList<Protein> emptyResult = BeamSearch.selectBestCandidates(empty, 2);
+        check(emptyResult != empty && emptyResult.isEmpty(), "Beam selection: hyrja bosh jep liste te re bosh");
+
+        ArrayList<Protein> bestOne = BeamSearch.selectBestCandidates(input, 1);
+        check(bestOne.size() == 1 && bestOne.get(0) != square && bestOne.get(0).calculateEnergy() == -1
+                        && sameCoordinates(bestOne.get(0), square, 4),
+                "Beam selection: beam width 1 zgjedh katrorin e pare me energji -1");
+        ArrayList<Protein> all = BeamSearch.selectBestCandidates(input, 10);
+        Protein[] expectedOrder = {square, translatedSquare, line, bent};
+        boolean orderedCopies = all != input && all.size() == expectedOrder.length;
+        for (int i = 0; orderedCopies && i < all.size(); i++) {
+            orderedCopies = all.get(i) != expectedOrder[i] && sameCoordinates(all.get(i), expectedOrder[i], 4);
+        }
+        check(orderedCopies, "Beam selection: width i madh kthen te gjithe, te renditur dhe me barazime te qendrueshme");
+        boolean inputUnchanged = input.size() == originalOrder.length;
+        for (int i = 0; inputUnchanged && i < input.size(); i++) {
+            inputUnchanged = input.get(i) == originalOrder[i] && sameCoordinates(input.get(i), snapshots[i], 4);
+        }
+        check(inputUnchanged, "Beam selection: hyrja ruan rendin, objektet dhe koordinatat");
+
+        check(all.get(0).tryMoveLast(new Position(1, 2, 0)) && sameCoordinates(square, snapshots[1], 4)
+                        && sameCoordinates(all.get(1), translatedSquare, 4),
+                "Beam selection: ndryshimi i rezultatit nuk prek hyrjen ose rezultatin tjeter");
+        check(square.tryMoveLast(new Position(1, 2, 0)) && sameCoordinates(bestOne.get(0), snapshots[1], 4),
+                "Beam selection: ndryshimi i hyrjes nuk prek kopjen e perzgjedhur");
+
+        Protein duplicate = createSquare("HHHH");
+        ArrayList<Protein> duplicateResults = BeamSearch.selectBestCandidates(List.of(duplicate, duplicate), 2);
+        check(duplicateResults.size() == 2 && duplicateResults.get(0) != duplicateResults.get(1)
+                        && duplicateResults.get(0) != duplicate && duplicateResults.get(1) != duplicate
+                        && duplicateResults.get(0).tryMoveLast(new Position(1, 2, 0))
+                        && duplicateResults.get(1).calculateEnergy() == -1 && duplicate.calculateEnergy() == -1,
+                "Beam selection: edhe referencat e perseritura japin kopje te pavarura");
+
+        Protein partialLine = createProtein("HHHHHH", linePositions);
+        Protein partialSquare = createSquare("HHHHHH");
+        ArrayList<Protein> partialResult = BeamSearch.selectBestCandidates(List.of(partialLine, partialSquare), 1);
+        check(partialResult.size() == 1 && partialResult.get(0).isValid() && !partialResult.get(0).isComplete()
+                        && !hasPosition(partialResult.get(0), 4) && sameCoordinates(partialResult.get(0), partialSquare, 4),
+                "Beam selection: lejohen kandidatet e pjesshem me te njejten sekuence dhe gjatesi te vendosur");
+
+        Protein[] invalid = {
+                new Protein("HHHH"),
+                createProtein("HHHH", new Position[]{
+                        new Position(0, 0, 0), new Position(1, 0, 0),
+                        new Position(0, 0, 0), new Position(1, 0, 0)
+                }),
+                createProtein("HHHH", new Position[]{
+                        new Position(0, 0, 0), new Position(1, 0, 0),
+                        new Position(2, 0, 0), new Position(4, 0, 0)
+                })
+        };
+        String[] reasons = {"struktura bosh", "mbivendosja", "lidhja e shkeputur"};
+        for (int i = 0; i < invalid.length; i++) {
+            boolean rejected = false;
+            try {
+                BeamSearch.selectBestCandidates(List.of(invalid[i]), 1);
+            } catch (IllegalStateException e) {
+                rejected = true;
+            }
+            check(rejected, "Beam selection: calculateEnergy refuzon " + reasons[i]);
+        }
+    }
+
+    private static void checkInvalidBeamSelection(List<Protein> candidates, int width, String description) {
+        boolean rejected = false;
+        try {
+            BeamSearch.selectBestCandidates(candidates, width);
+        } catch (IllegalArgumentException e) {
+            rejected = true;
+        }
+        check(rejected, "Beam selection: refuzon " + description);
     }
 
     private static void checkCoordinates(Protein protein, Position[] expectedPositions, String description) {
