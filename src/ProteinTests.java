@@ -86,6 +86,7 @@ public class ProteinTests {
         testOptimizationControlledSteps();
         testExtensions();
         testBeamSelection();
+        testBeamSearch();
     }
 
     private static void demonstrateCopiesAndMoves() {
@@ -950,6 +951,55 @@ public class ProteinTests {
             rejected = true;
         }
         check(rejected, "Beam selection: refuzon " + description);
+    }
+
+    private static void testBeamSearch() {
+        String[] invalidSequences = {null, "", "HPX", "hp", "H P"};
+        for (String sequence : invalidSequences) {
+            checkInvalidBeamSearch(sequence, 10, "sekuencen [" + sequence + "]");
+        }
+        checkInvalidBeamSearch("HHHH", 0, "beam width zero");
+        checkInvalidBeamSearch("HHHH", -1, "beam width negativ");
+
+        Protein single = BeamSearch.search("H", 10);
+        check(single != null && single.isComplete() && single.isValid() && single.calculateEnergy() == 0
+                        && single.getPosition(0).isSamePosition(new Position(0, 0, 0)),
+                "Beam search: H jep strukture te plote ne origjine me energji 0");
+        Protein pair = BeamSearch.search("HH", 10);
+        check(pair != null && pair.isComplete() && pair.isValid() && pair.calculateEnergy() == 0
+                        && pair.getPosition(0).isNeighbor(pair.getPosition(1)),
+                "Beam search: HH jep dy pozicione fqinje me energji 0");
+        Protein best = BeamSearch.search("HHHH", 30);
+        check(best != null && best.isComplete() && best.isValid() && best.calculateEnergy() == -1,
+                "Beam search: HHHH me width 30 gjen strukture te plote me energji -1");
+        Protein polar = BeamSearch.search("PPPP", 10);
+        check(polar != null && polar.isComplete() && polar.isValid() && polar.calculateEnergy() == 0,
+                "Beam search: PPPP jep strukture te plote me energji 0");
+        Protein mixed = BeamSearch.search("HPPH", 10);
+        check(mixed != null && mixed.isComplete() && mixed.isValid(),
+                "Beam search: sekuenca e perzier HPPH jep strukture te plote dhe te vlefshme");
+        Protein narrow = BeamSearch.search("HHHH", 1);
+        check(narrow != null && narrow.isComplete() && narrow.isValid(),
+                "Beam search: width 1 perfundon shembullin e shkurter");
+
+        Protein repeated = BeamSearch.search("HHHH", 30);
+        check(repeated != null && repeated.isComplete() && sameCoordinates(best, repeated, 4)
+                        && best.calculateEnergy() == repeated.calculateEnergy(),
+                "Beam search: thirrjet identike japin koordinata dhe energji identike");
+        Protein snapshot = repeated.copy();
+        check(best != repeated && best.tryPivotRotation(0, 'Z', 1)
+                        && !sameCoordinates(best, repeated, 4) && sameCoordinates(repeated, snapshot, 4),
+                "Beam search: ndryshimi i nje rezultati nuk prek rezultatin e thirrjes tjeter");
+    }
+
+    private static void checkInvalidBeamSearch(String sequence, int width, String description) {
+        boolean rejected = false;
+        try {
+            BeamSearch.search(sequence, width);
+        } catch (IllegalArgumentException e) {
+            rejected = true;
+        }
+        check(rejected, "Beam search: refuzon " + description);
     }
 
     private static void checkCoordinates(Protein protein, Position[] expectedPositions, String description) {
