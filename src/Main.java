@@ -32,15 +32,30 @@ public class Main {
             protein.addPosition(new Position(i, 0, 0));
         }
 
+        System.out.println("Simulated Annealing");
         System.out.println("Energjia fillestare: " + protein.calculateEnergy());
         Protein best = SimulatedAnnealing.optimize(protein, 1000, 2.0, 0.995, new Random(2025));
-        System.out.println("Energjia me e mire: " + best.calculateEnergy());
+        showResult(best, hpSequence);
+
+        System.out.println();
+        System.out.println("Beam Search");
+        System.out.println("Gjeresia: 30");
+        Protein beamResult = BeamSearch.search(hpSequence, 30);
+        if (beamResult == null) {
+            System.out.println("Kerkimi nuk arriti te ndertoje nje strukture te plote.");
+        } else {
+            showResult(beamResult, hpSequence);
+        }
+    }
+
+    private static void showResult(Protein result, String hpSequence) {
+        System.out.println("Energjia e gjetur: " + result.calculateEnergy());
         for (int i = 0; i < hpSequence.length(); i++) {
-            Position position = best.getPosition(i);
+            Position position = result.getPosition(i);
             System.out.println("Pozicioni " + i + ": (" + position.x
                     + "," + position.y + "," + position.z + ")");
         }
-        System.out.println("E plote: " + best.isComplete());
-        System.out.println("E vlefshme: " + best.isValid());
+        System.out.println("E plote: " + result.isComplete());
+        System.out.println("E vlefshme: " + result.isValid());
     }
 }
