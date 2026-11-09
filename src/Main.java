@@ -1,4 +1,6 @@
+import java.util.Locale;
 import java.util.Random;
+import java.util.Scanner;
 
 class Position {
     int x;
@@ -26,8 +28,25 @@ class Position {
 
 public class Main {
     public static void main(String[] args) {
-        String hpSequence = "HHHH";
-        Protein protein = new Protein(hpSequence);
+        String hpSequence;
+        try (Scanner scanner = new Scanner(System.in)) {
+            System.out.println("Shkruaj sekuencen HP (vetem H dhe P):");
+            if (!scanner.hasNextLine()) {
+                return;
+            }
+            hpSequence = scanner.nextLine().trim().toUpperCase(Locale.ROOT);
+        }
+
+        Protein protein;
+        try {
+            protein = new Protein(hpSequence);
+        } catch (IllegalArgumentException e) {
+            System.out.println("Sekuence e pavlefshme: " + e.getMessage());
+            return;
+        }
+
+        System.out.println("Sekuenca HP: " + hpSequence);
+        System.out.println("Gjatesia: " + hpSequence.length());
         for (int i = 0; i < hpSequence.length(); i++) {
             protein.addPosition(new Position(i, 0, 0));
         }
