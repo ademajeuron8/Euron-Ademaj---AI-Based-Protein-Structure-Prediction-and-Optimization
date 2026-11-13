@@ -87,6 +87,7 @@ public class ProteinTests {
         testExtensions();
         testBeamSelection();
         testBeamSearch();
+        testAminoAcidConverter();
     }
 
     private static void demonstrateCopiesAndMoves() {
@@ -1000,6 +1001,44 @@ public class ProteinTests {
             rejected = true;
         }
         check(rejected, "Beam search: refuzon " + description);
+    }
+
+    private static void testAminoAcidConverter() {
+        check(AminoAcidConverter.toHp("AGVL").equals("HPHH"), "Amino converter: AGVL jep HPHH");
+        check(AminoAcidConverter.toHp("AVILMFWYC").equals("HHHHHHHHH"),
+                "Amino converter: nente simbolet hidrofobike japin nente H");
+        check(AminoAcidConverter.toHp("DEGHKNPQRST").equals("PPPPPPPPPPP"),
+                "Amino converter: njembedhjete simbolet polare japin njembedhjete P");
+        check(AminoAcidConverter.toHp("HP").equals("PP"), "Amino converter: histidina dhe prolina japin PP");
+        check(AminoAcidConverter.toHp("  agvl  ").equals("HPHH"),
+                "Amino converter: pranon shkronja te vogla dhe heq vetem hapesirat anesore");
+
+        String[] invalidSequences = {null, "", "   ", "AG VL", "AG1L", "AG!L", "B", "J", "O", "U", "X", "Z", "A\u017FG"};
+        for (String sequence : invalidSequences) {
+            boolean rejected = false;
+            try {
+                AminoAcidConverter.toHp(sequence);
+            } catch (IllegalArgumentException e) {
+                rejected = true;
+            }
+            check(rejected, "Amino converter: refuzon [" + sequence + "]");
+        }
+
+        boolean correctMessage = false;
+        try {
+            AminoAcidConverter.toHp("  AgxVL  ");
+        } catch (IllegalArgumentException e) {
+            correctMessage = e.getMessage().contains("'x'") && e.getMessage().contains("pozicionin 3 ");
+        }
+        check(correctMessage, "Amino converter: gabimi tregon karakterin origjinal x dhe pozicionin 3 pas trim");
+
+        String hpSequence = AminoAcidConverter.toHp("AGVL");
+        Protein protein = new Protein(hpSequence);
+        for (int i = 0; i < hpSequence.length(); i++) {
+            protein.addPosition(new Position(i, 0, 0));
+        }
+        check(protein.isValid() && protein.isComplete() && protein.calculateEnergy() == 0,
+                "Amino converter: rezultati perdoret nga Protein me gjatesine e ruajtur");
     }
 
     private static void checkCoordinates(Protein protein, Position[] expectedPositions, String description) {
