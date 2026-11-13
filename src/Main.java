@@ -28,23 +28,49 @@ class Position {
 
 public class Main {
     public static void main(String[] args) {
-        String hpSequence;
+        String inputType;
+        String sequenceInput;
         try (Scanner scanner = new Scanner(System.in)) {
-            System.out.println("Shkruaj sekuencen HP (vetem H dhe P):");
+            System.out.println("Zgjidh llojin e sekuences:");
+            System.out.println("1. Sekuence HP");
+            System.out.println("2. Sekuence aminoacidesh");
             if (!scanner.hasNextLine()) {
                 return;
             }
-            hpSequence = scanner.nextLine().trim().toUpperCase(Locale.ROOT);
+            inputType = scanner.nextLine().trim();
+            if (!inputType.equals("1") && !inputType.equals("2")) {
+                System.out.println("Zgjedhje e pavlefshme. Zgjidh 1 ose 2.");
+                return;
+            }
+            if (inputType.equals("1")) {
+                System.out.println("Shkruaj sekuencen HP (vetem H dhe P):");
+            } else {
+                System.out.println("Shkruaj sekuencen e aminoacideve:");
+            }
+            if (!scanner.hasNextLine()) {
+                return;
+            }
+            sequenceInput = scanner.nextLine();
         }
 
+        String hpSequence;
         Protein protein;
         try {
+            if (inputType.equals("1")) {
+                hpSequence = sequenceInput.trim().toUpperCase(Locale.ROOT);
+            } else {
+                hpSequence = AminoAcidConverter.toHp(sequenceInput);
+            }
             protein = new Protein(hpSequence);
         } catch (IllegalArgumentException e) {
             System.out.println("Sekuence e pavlefshme: " + e.getMessage());
             return;
         }
 
+        System.out.println("Lloji i sekuences: " + (inputType.equals("1") ? "HP" : "Aminoacide"));
+        if (inputType.equals("2")) {
+            System.out.println("Sekuenca e aminoacideve: " + sequenceInput.trim().toUpperCase(Locale.ROOT));
+        }
         System.out.println("Sekuenca HP: " + hpSequence);
         System.out.println("Gjatesia: " + hpSequence.length());
         for (int i = 0; i < hpSequence.length(); i++) {
