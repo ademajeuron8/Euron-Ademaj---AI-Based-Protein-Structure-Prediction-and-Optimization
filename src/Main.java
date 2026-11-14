@@ -30,6 +30,13 @@ public class Main {
     public static void main(String[] args) {
         String inputType;
         String sequenceInput;
+        String hpSequence;
+        Protein protein;
+        int maxIterations;
+        double initialTemperature;
+        double coolingRate;
+        long seed;
+        int beamWidth;
         try (Scanner scanner = new Scanner(System.in)) {
             System.out.println("Zgjidh llojin e sekuences:");
             System.out.println("1. Sekuence HP");
@@ -51,46 +58,116 @@ public class Main {
                 return;
             }
             sequenceInput = scanner.nextLine();
-        }
 
-        String hpSequence;
-        Protein protein;
-        try {
-            if (inputType.equals("1")) {
-                hpSequence = sequenceInput.trim().toUpperCase(Locale.ROOT);
-            } else {
-                hpSequence = AminoAcidConverter.toHp(sequenceInput);
+            try {
+                if (inputType.equals("1")) {
+                    hpSequence = sequenceInput.trim().toUpperCase(Locale.ROOT);
+                } else {
+                    hpSequence = AminoAcidConverter.toHp(sequenceInput);
+                }
+                protein = new Protein(hpSequence);
+            } catch (IllegalArgumentException e) {
+                System.out.println("Sekuence e pavlefshme: " + e.getMessage());
+                return;
             }
-            protein = new Protein(hpSequence);
-        } catch (IllegalArgumentException e) {
-            System.out.println("Sekuence e pavlefshme: " + e.getMessage());
-            return;
+
+            System.out.println("Lloji i sekuences: " + (inputType.equals("1") ? "HP" : "Aminoacide"));
+            if (inputType.equals("2")) {
+                System.out.println("Sekuenca e aminoacideve: " + sequenceInput.trim().toUpperCase(Locale.ROOT));
+            }
+            System.out.println("Sekuenca HP: " + hpSequence);
+            System.out.println("Gjatesia: " + hpSequence.length());
+            System.out.println("Shtyp Enter per te ruajtur vleren ne kllapa. Numrat dhjetore shkruhen me pike.");
+
+            String parameter = "Numri i perpjekjeve per Simulated Annealing";
+            try {
+                String value = readParameter(scanner, parameter, "1000");
+                if (value == null) {
+                    return;
+                }
+                maxIterations = Integer.parseInt(value);
+                if (maxIterations < 0) {
+                    throw new IllegalArgumentException("Duhet te jete jo negativ.");
+                }
+
+                parameter = "Temperatura fillestare";
+                value = readParameter(scanner, parameter, "2.0");
+                if (value == null) {
+                    return;
+                }
+                initialTemperature = Double.parseDouble(value);
+                if (!Double.isFinite(initialTemperature) || initialTemperature < 0) {
+                    throw new IllegalArgumentException("Duhet te jete nje numer i fundem jo negativ.");
+                }
+
+                parameter = "Faktori i ftohjes";
+                value = readParameter(scanner, parameter, "0.995");
+                if (value == null) {
+                    return;
+                }
+                coolingRate = Double.parseDouble(value);
+                if (!Double.isFinite(coolingRate) || coolingRate <= 0 || coolingRate >= 1) {
+                    throw new IllegalArgumentException("Duhet te jete nje numer i fundem midis 0 dhe 1, pa kufijte.");
+                }
+
+                parameter = "Seed per Simulated Annealing";
+                value = readParameter(scanner, parameter, "2025");
+                if (value == null) {
+                    return;
+                }
+                seed = Long.parseLong(value);
+
+                parameter = "Gjeresia e Beam Search";
+                value = readParameter(scanner, parameter, "30");
+                if (value == null) {
+                    return;
+                }
+                beamWidth = Integer.parseInt(value);
+                if (beamWidth <= 0) {
+                    throw new IllegalArgumentException("Duhet te jete pozitive.");
+                }
+            } catch (NumberFormatException e) {
+                System.out.println("Vlere e pavlefshme per " + parameter
+                        + ": numri nuk eshte i vlefshem ose eshte jashte kufijve te lejuar.");
+                return;
+            } catch (IllegalArgumentException e) {
+                System.out.println("Vlere e pavlefshme per " + parameter + ": " + e.getMessage());
+                return;
+            }
         }
 
-        System.out.println("Lloji i sekuences: " + (inputType.equals("1") ? "HP" : "Aminoacide"));
-        if (inputType.equals("2")) {
-            System.out.println("Sekuenca e aminoacideve: " + sequenceInput.trim().toUpperCase(Locale.ROOT));
-        }
-        System.out.println("Sekuenca HP: " + hpSequence);
-        System.out.println("Gjatesia: " + hpSequence.length());
+        System.out.println("Parametrat e perdorur:");
+        System.out.println("SA: perpjekje=" + maxIterations + ", temperatura=" + initialTemperature
+                + ", ftohja=" + coolingRate + ", seed=" + seed);
+        System.out.println("Beam Search: gjeresia=" + beamWidth);
         for (int i = 0; i < hpSequence.length(); i++) {
             protein.addPosition(new Position(i, 0, 0));
         }
 
         System.out.println("Simulated Annealing");
         System.out.println("Energjia fillestare: " + protein.calculateEnergy());
-        Protein best = SimulatedAnnealing.optimize(protein, 1000, 2.0, 0.995, new Random(2025));
+        Protein best = SimulatedAnnealing.optimize(protein, maxIterations, initialTemperature,
+                coolingRate, new Random(seed));
         showResult(best, hpSequence);
 
         System.out.println();
         System.out.println("Beam Search");
-        System.out.println("Gjeresia: 30");
-        Protein beamResult = BeamSearch.search(hpSequence, 30);
+        System.out.println("Gjeresia: " + beamWidth);
+        Protein beamResult = BeamSearch.search(hpSequence, beamWidth);
         if (beamResult == null) {
             System.out.println("Kerkimi nuk arriti te ndertoje nje strukture te plote.");
         } else {
             showResult(beamResult, hpSequence);
         }
+    }
+
+    private static String readParameter(Scanner scanner, String name, String defaultValue) {
+        System.out.println(name + " [" + defaultValue + "]:");
+        if (!scanner.hasNextLine()) {
+            return null;
+        }
+        String value = scanner.nextLine().trim();
+        return value.isEmpty() ? defaultValue : value;
     }
 
     private static void showResult(Protein result, String hpSequence) {
