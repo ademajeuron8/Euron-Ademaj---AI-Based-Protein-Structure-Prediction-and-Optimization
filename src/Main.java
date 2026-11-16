@@ -146,19 +146,26 @@ public class Main {
 
         System.out.println("Simulated Annealing");
         System.out.println("Energjia fillestare: " + protein.calculateEnergy());
+        Random random = new Random(seed);
+        long saStart = System.nanoTime();
         Protein best = SimulatedAnnealing.optimize(protein, maxIterations, initialTemperature,
-                coolingRate, new Random(seed));
+                coolingRate, random);
+        long saElapsedNanos = System.nanoTime() - saStart;
         showResult(best, hpSequence);
+        System.out.printf(Locale.ROOT, "Koha e ekzekutimit: %.3f ms%n", saElapsedNanos / 1_000_000.0);
 
         System.out.println();
         System.out.println("Beam Search");
         System.out.println("Gjeresia: " + beamWidth);
+        long beamStart = System.nanoTime();
         Protein beamResult = BeamSearch.search(hpSequence, beamWidth);
+        long beamElapsedNanos = System.nanoTime() - beamStart;
         if (beamResult == null) {
             System.out.println("Kerkimi nuk arriti te ndertoje nje strukture te plote.");
         } else {
             showResult(beamResult, hpSequence);
         }
+        System.out.printf(Locale.ROOT, "Koha e ekzekutimit: %.3f ms%n", beamElapsedNanos / 1_000_000.0);
     }
 
     private static String readParameter(Scanner scanner, String name, String defaultValue) {
