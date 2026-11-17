@@ -3,6 +3,11 @@ import java.util.Random;
 public class SimulatedAnnealing {
     public static Protein optimize(Protein initial, int maxIterations, double initialTemperature,
                                    double coolingRate, Random random) {
+        return optimizeWithStats(initial, maxIterations, initialTemperature, coolingRate, random).getBestProtein();
+    }
+
+    public static AnnealingResult optimizeWithStats(Protein initial, int maxIterations, double initialTemperature,
+                                                   double coolingRate, Random random) {
         if (initial == null) {
             throw new IllegalArgumentException("Proteina fillestare nuk mund te jete null.");
         }
@@ -27,14 +32,20 @@ public class SimulatedAnnealing {
         Protein best = current.copy();
         int bestEnergy = currentEnergy;
         double temperature = initialTemperature;
+        int attempts = 0;
+        int validCandidates = 0;
+        int acceptedMoves = 0;
 
         for (int iteration = 0; iteration < maxIterations; iteration++) {
+            attempts++;
             Protein candidate = current.createRandomNeighbor(random);
             if (candidate != null) {
+                validCandidates++;
                 int candidateEnergy = candidate.calculateEnergy();
                 if (shouldAccept(currentEnergy, candidateEnergy, temperature, random)) {
                     current = candidate;
                     currentEnergy = candidateEnergy;
+                    acceptedMoves++;
                     if (currentEnergy < bestEnergy) {
                         best = current.copy();
                         bestEnergy = currentEnergy;
@@ -46,7 +57,7 @@ public class SimulatedAnnealing {
             temperature *= coolingRate;
         }
 
-        return best;
+        return new AnnealingResult(best, attempts, validCandidates, acceptedMoves);
     }
 
     public static boolean shouldAccept(int currentEnergy, int candidateEnergy,

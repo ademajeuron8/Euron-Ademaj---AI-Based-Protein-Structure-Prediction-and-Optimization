@@ -88,6 +88,7 @@ public class ProteinTests {
         testBeamSelection();
         testBeamSearch();
         testAminoAcidConverter();
+        testAnnealingStats();
     }
 
     private static void demonstrateCopiesAndMoves() {
@@ -1039,6 +1040,79 @@ public class ProteinTests {
         }
         check(protein.isValid() && protein.isComplete() && protein.calculateEnergy() == 0,
                 "Amino converter: rezultati perdoret nga Protein me gjatesine e ruajtur");
+    }
+
+    private static void testAnnealingStats() {
+        Position[] initialPositions = {
+                new Position(0, 0, 0), new Position(1, 0, 0),
+                new Position(1, 1, 0), new Position(1, 2, 0)
+        };
+        Protein initial = createProtein("HHHH", initialPositions);
+        ControlledAnnealingRandom zeroRandom = new ControlledAnnealingRandom(new int[0]);
+        AnnealingResult zero = SimulatedAnnealing.optimizeWithStats(initial, 0, 2, 0.5, zeroRandom);
+        Protein zeroBest = zero.getBestProtein();
+        check(zero.getAttempts() == 0 && zero.getValidCandidates() == 0 && zero.getAcceptedMoves() == 0,
+                "SA stats: zero iteracione japin tre numerues zero");
+        check(zeroBest != initial && zeroBest != zero.getBestProtein() && zeroBest.isComplete()
+                        && sameCoordinates(zeroBest, initial, initialPositions.length),
+                "SA stats: rezultati me zero iteracione eshte kopje e pavarur e fillimit");
+        check(zeroRandom.intIndex == 0 && zeroRandom.doubleIndex == 0,
+                "SA stats: zero iteracione nuk konsumojne Random");
+        check(zeroBest.tryMoveLast(new Position(0, 1, 0))
+                        && sameCoordinates(zero.getBestProtein(), initial, initialPositions.length),
+                "SA stats: ndryshimi i kopjes nga getter nuk prek rezultatin e ruajtur");
+
+        Protein constructorSource = initial.copy();
+        AnnealingResult stored = new AnnealingResult(constructorSource, 0, 0, 0);
+        check(constructorSource.tryMoveLast(new Position(0, 1, 0))
+                        && sameCoordinates(stored.getBestProtein(), initial, initialPositions.length),
+                "SA stats: konstruktori ruan kopje te pavarur te proteines");
+
+        Protein single = createProtein("H", new Position[]{new Position(0, 0, 0)});
+        ControlledAnnealingRandom singleRandom = new ControlledAnnealingRandom(new int[0]);
+        AnnealingResult singleStats = SimulatedAnnealing.optimizeWithStats(single, 10, 2, 0.5, singleRandom);
+        check(singleStats.getAttempts() == 10 && singleStats.getValidCandidates() == 0
+                        && singleStats.getAcceptedMoves() == 0 && singleRandom.intIndex == 0 && singleRandom.doubleIndex == 0,
+                "SA stats: nje pozicion numeron 10 perpjekje pa kandidate ose pranime");
+        Protein singleBest = singleStats.getBestProtein();
+        check(singleBest != single && singleBest.isComplete() && singleBest.calculateEnergy() == 0
+                        && sameCoordinates(singleBest, single, 1),
+                "SA stats: propozimet null ruajne strukturen me nje pozicion");
+
+        // Pa ndryshim (null), permiresim, refuzim, perkeqesim i pranuar, barazim i pranuar.
+        ControlledAnnealingRandom controlled = new ControlledAnnealingRandom(
+                new int[]{0, 2, 0, 1, 0, 2, 0, 2, 0, 4}, 0.5, 0.0);
+        AnnealingResult counted = SimulatedAnnealing.optimizeWithStats(initial, 5, 2, 0.5, controlled);
+        check(counted.getAttempts() == 5 && counted.getValidCandidates() == 4 && counted.getAcceptedMoves() == 3,
+                "SA stats: numerohen null, refuzimi dhe pranimet me permiresim, perkeqesim e barazim");
+        check(controlled.intIndex == 10 && controlled.doubleIndex == 2,
+                "SA stats: numerimi nuk ndryshon thirrjet e kontrolluara te Random");
+        Protein countedBest = counted.getBestProtein();
+        check(countedBest.isComplete() && countedBest.calculateEnergy() == -1
+                        && sameCoordinates(countedBest, createSquare("HHHH"), initialPositions.length),
+                "SA stats: ruhet best pas pranimit te perkeqesimit dhe barazimit");
+
+        for (long seed : new long[]{2025, -7}) {
+            AnnealingResult normal = SimulatedAnnealing.optimizeWithStats(initial, 100, 2, 0.995, new Random(seed));
+            Protein best = normal.getBestProtein();
+            check(normal.getAttempts() == 100 && normal.getAcceptedMoves() >= 0
+                            && normal.getAcceptedMoves() <= normal.getValidCandidates()
+                            && normal.getValidCandidates() <= normal.getAttempts()
+                            && best.isComplete() && best.calculateEnergy() <= initial.calculateEnergy(),
+                    "SA stats: invarianti i numeruesve dhe cilesia e rezultatit ruhen per seed " + seed);
+        }
+
+        Random oldApiRandom = new Random(2025);
+        Random statsApiRandom = new Random(2025);
+        Protein oldApiBest = SimulatedAnnealing.optimize(initial, 200, 2, 0.995, oldApiRandom);
+        AnnealingResult detailed = SimulatedAnnealing.optimizeWithStats(initial, 200, 2, 0.995, statsApiRandom);
+        Protein statsApiBest = detailed.getBestProtein();
+        check(sameCoordinates(oldApiBest, statsApiBest, initialPositions.length)
+                        && oldApiBest.calculateEnergy() == statsApiBest.calculateEnergy(),
+                "SA stats: optimize dhe optimizeWithStats japin te njejtin best me seed identik");
+        check(oldApiRandom.nextLong() == statsApiRandom.nextLong(),
+                "SA stats: dy API-te ruajne te njejten vazhdimesi te Random");
+        checkCoordinates(initial, initialPositions, "SA stats: inputi mbetet i pandryshuar pas te gjitha thirrjeve");
     }
 
     private static void checkCoordinates(Protein protein, Position[] expectedPositions, String description) {
