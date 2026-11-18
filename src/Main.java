@@ -148,23 +148,36 @@ public class Main {
         System.out.println("Energjia fillestare: " + protein.calculateEnergy());
         Random random = new Random(seed);
         long saStart = System.nanoTime();
-        Protein best = SimulatedAnnealing.optimize(protein, maxIterations, initialTemperature,
+        AnnealingResult saStats = SimulatedAnnealing.optimizeWithStats(protein, maxIterations, initialTemperature,
                 coolingRate, random);
         long saElapsedNanos = System.nanoTime() - saStart;
+        Protein best = saStats.getBestProtein();
         showResult(best, hpSequence);
+        System.out.println("Perpjekjet: " + saStats.getAttempts());
+        System.out.println("Kandidatet e vlefshem: " + saStats.getValidCandidates());
+        System.out.println("Levizjet e pranuara: " + saStats.getAcceptedMoves());
+        System.out.println("Perpjekjet pa kandidat: " + (saStats.getAttempts() - saStats.getValidCandidates()));
+        System.out.println("Kandidatet e refuzuar nga rregulli i pranimit: "
+                + (saStats.getValidCandidates() - saStats.getAcceptedMoves()));
         System.out.printf(Locale.ROOT, "Koha e ekzekutimit: %.3f ms%n", saElapsedNanos / 1_000_000.0);
 
         System.out.println();
         System.out.println("Beam Search");
         System.out.println("Gjeresia: " + beamWidth);
         long beamStart = System.nanoTime();
-        Protein beamResult = BeamSearch.search(hpSequence, beamWidth);
+        BeamSearchResult beamStats = BeamSearch.searchWithStats(hpSequence, beamWidth);
         long beamElapsedNanos = System.nanoTime() - beamStart;
+        Protein beamResult = beamStats.getBestProtein();
         if (beamResult == null) {
             System.out.println("Kerkimi nuk arriti te ndertoje nje strukture te plote.");
         } else {
             showResult(beamResult, hpSequence);
         }
+        System.out.println("Strukturat e zgjeruara: " + beamStats.getExpandedStates());
+        System.out.println("Kandidatet e gjeneruar: " + beamStats.getGeneratedCandidates());
+        System.out.println("Kandidatet e ruajtur gjithsej gjate niveleve: " + beamStats.getRetainedCandidates());
+        System.out.println("Kandidatet e larguar nga kufiri i gjeresise: " + beamStats.getPrunedCandidates());
+        System.out.println("Nivelet e perfunduara: " + beamStats.getCompletedLevels());
         System.out.printf(Locale.ROOT, "Koha e ekzekutimit: %.3f ms%n", beamElapsedNanos / 1_000_000.0);
     }
 

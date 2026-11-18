@@ -5,25 +5,41 @@ public class BeamSearch {
     // null do te thote se deget e ruajtura ngecen, jo se eshte provuar
     // mosekzistenca e nje strukture te vlefshme.
     public static Protein search(String hpSequence, int beamWidth) {
+        return searchWithStats(hpSequence, beamWidth).getBestProtein();
+    }
+
+    public static BeamSearchResult searchWithStats(String hpSequence, int beamWidth) {
         if (beamWidth <= 0) {
             throw new IllegalArgumentException("Beam width duhet te jete pozitiv.");
         }
         Protein initial = new Protein(hpSequence);
         ArrayList<Protein> beam = new ArrayList<>();
         beam.add(initial);
+        long expandedStates = 0;
+        long generatedCandidates = 0;
+        long retainedCandidates = 0;
+        long prunedCandidates = 0;
+        int completedLevels = 0;
 
         for (int step = 0; step < hpSequence.length(); step++) {
             ArrayList<Protein> candidates = new ArrayList<>();
             for (Protein protein : beam) {
+                expandedStates++;
                 candidates.addAll(protein.createExtensions());
             }
+            generatedCandidates += candidates.size();
             if (candidates.isEmpty()) {
-                return null;
+                return new BeamSearchResult(null, expandedStates, generatedCandidates,
+                        retainedCandidates, prunedCandidates, completedLevels);
             }
             beam = selectBestCandidates(candidates, beamWidth);
+            retainedCandidates += beam.size();
+            prunedCandidates += candidates.size() - beam.size();
+            completedLevels++;
         }
 
-        return beam.get(0);
+        return new BeamSearchResult(beam.get(0), expandedStates, generatedCandidates,
+                retainedCandidates, prunedCandidates, completedLevels);
     }
 
     // Ne Beam Search krahasohen kandidate me te njejten sekuence HP

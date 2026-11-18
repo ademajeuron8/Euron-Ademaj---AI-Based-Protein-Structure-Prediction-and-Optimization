@@ -89,6 +89,7 @@ public class ProteinTests {
         testBeamSearch();
         testAminoAcidConverter();
         testAnnealingStats();
+        testBeamSearchStats();
     }
 
     private static void demonstrateCopiesAndMoves() {
@@ -1113,6 +1114,59 @@ public class ProteinTests {
         check(oldApiRandom.nextLong() == statsApiRandom.nextLong(),
                 "SA stats: dy API-te ruajne te njejten vazhdimesi te Random");
         checkCoordinates(initial, initialPositions, "SA stats: inputi mbetet i pandryshuar pas te gjitha thirrjeve");
+    }
+
+    private static void testBeamSearchStats() {
+        BeamSearchResult single = BeamSearch.searchWithStats("H", 2);
+        check(single.getExpandedStates() == 1 && single.getGeneratedCandidates() == 1
+                        && single.getRetainedCandidates() == 1 && single.getPrunedCandidates() == 0
+                        && single.getCompletedLevels() == 1,
+                "Beam stats: H me width 2 numeron 1 zgjerim, 1 gjenerim, 1 ruajtje dhe 0 largime");
+        Protein singleBest = single.getBestProtein();
+        check(singleBest != null && singleBest.isComplete() && singleBest.calculateEnergy() == 0
+                        && singleBest.getPosition(0).isSamePosition(new Position(0, 0, 0)),
+                "Beam stats: origjina perfshihet ne numerim dhe rezultati eshte i plote");
+
+        BeamSearchResult pair = BeamSearch.searchWithStats("HH", 2);
+        check(pair.getExpandedStates() == 2 && pair.getGeneratedCandidates() == 7
+                        && pair.getRetainedCandidates() == 3 && pair.getPrunedCandidates() == 4
+                        && pair.getCompletedLevels() == 2,
+                "Beam stats: HH me width 2 numeron 2 zgjerime, 7 gjenerime, 3 ruajtje dhe 4 largime");
+        Protein pairBest = pair.getBestProtein();
+        check(pairBest != null && pairBest.isComplete() && pairBest.calculateEnergy() == 0
+                        && pairBest.getPosition(0).isNeighbor(pairBest.getPosition(1)),
+                "Beam stats: HH jep rezultat te plote dhe te vlefshem");
+
+        for (int width : new int[]{1, 30}) {
+            Protein oldApiBest = BeamSearch.search("HHHH", width);
+            BeamSearchResult detailed = BeamSearch.searchWithStats("HHHH", width);
+            Protein statsApiBest = detailed.getBestProtein();
+            check(oldApiBest != null && statsApiBest != null && statsApiBest.isComplete()
+                            && sameCoordinates(oldApiBest, statsApiBest, 4)
+                            && oldApiBest.calculateEnergy() == statsApiBest.calculateEnergy(),
+                    "Beam stats: search dhe searchWithStats japin rezultat identik me width " + width);
+            check(detailed.getGeneratedCandidates() == detailed.getRetainedCandidates() + detailed.getPrunedCandidates()
+                            && detailed.getExpandedStates() >= detailed.getCompletedLevels()
+                            && detailed.getRetainedCandidates() >= detailed.getCompletedLevels()
+                            && detailed.getPrunedCandidates() >= 0 && detailed.getCompletedLevels() == 4,
+                    "Beam stats: invarianti i numeruesve ruhet me width " + width);
+        }
+
+        Protein source = createSquare("HHHH");
+        BeamSearchResult stored = new BeamSearchResult(source, 2, 7, 3, 4, 2);
+        check(source.tryMoveLast(new Position(1, 2, 0)) && stored.getBestProtein().calculateEnergy() == -1,
+                "Beam stats: konstruktori kopjon proteinen dhe nuk ndan objektin burim");
+        Protein received = stored.getBestProtein();
+        check(received.tryMoveLast(new Position(1, 2, 0)) && stored.getBestProtein().calculateEnergy() == -1,
+                "Beam stats: ndryshimi i kopjes nga getter nuk prek rezultatin e ruajtur");
+
+        BeamSearchResult noResult = new BeamSearchResult(null, 4_000_000_000L, 7_000_000_000L,
+                3_000_000_000L, 4_000_000_000L, 2);
+        check(noResult.getBestProtein() == null && noResult.getExpandedStates() == 4_000_000_000L
+                        && noResult.getGeneratedCandidates() == 7_000_000_000L
+                        && noResult.getRetainedCandidates() == 3_000_000_000L
+                        && noResult.getPrunedCandidates() == 4_000_000_000L && noResult.getCompletedLevels() == 2,
+                "Beam stats: rezultati pa proteine lexohet normalisht dhe ruan numeruesit long");
     }
 
     private static void checkCoordinates(Protein protein, Position[] expectedPositions, String description) {
