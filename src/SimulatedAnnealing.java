@@ -1,4 +1,5 @@
 import java.util.Random;
+import java.util.function.LongSupplier;
 
 public class SimulatedAnnealing {
     public static Protein optimize(Protein initial, int maxIterations, double initialTemperature,
@@ -6,8 +7,28 @@ public class SimulatedAnnealing {
         return optimizeWithStats(initial, maxIterations, initialTemperature, coolingRate, random).getBestProtein();
     }
 
+    public static Protein optimize(Protein initial, int maxIterations, double initialTemperature,
+                                   double coolingRate, Random random, long timeLimitMillis) {
+        return optimizeWithStats(initial, maxIterations, initialTemperature, coolingRate, random,
+                timeLimitMillis).getBestProtein();
+    }
+
     public static AnnealingResult optimizeWithStats(Protein initial, int maxIterations, double initialTemperature,
                                                    double coolingRate, Random random) {
+        return optimizeWithStats(initial, maxIterations, initialTemperature, coolingRate, random, 0);
+    }
+
+    public static AnnealingResult optimizeWithStats(Protein initial, int maxIterations, double initialTemperature,
+                                                   double coolingRate, Random random, long timeLimitMillis) {
+        return optimizeWithStats(initial, maxIterations, initialTemperature, coolingRate, random,
+                timeLimitMillis, System::nanoTime);
+    }
+
+    // Burimi i kohes mund te zevendesohet nga testet ne te njejten pakete.
+    static AnnealingResult optimizeWithStats(Protein initial, int maxIterations, double initialTemperature,
+                                            double coolingRate, Random random, long timeLimitMillis,
+                                            LongSupplier nanoTime) {
+        SearchTimeLimit limit = new SearchTimeLimit(timeLimitMillis, nanoTime);
         if (initial == null) {
             throw new IllegalArgumentException("Proteina fillestare nuk mund te jete null.");
         }
@@ -37,6 +58,9 @@ public class SimulatedAnnealing {
         int acceptedMoves = 0;
 
         for (int iteration = 0; iteration < maxIterations; iteration++) {
+            if (limit.isExpired()) {
+                return new AnnealingResult(best, attempts, validCandidates, acceptedMoves, StopReason.TIME_LIMIT);
+            }
             attempts++;
             Protein candidate = current.createRandomNeighbor(random);
             if (candidate != null) {
@@ -57,7 +81,7 @@ public class SimulatedAnnealing {
             temperature *= coolingRate;
         }
 
-        return new AnnealingResult(best, attempts, validCandidates, acceptedMoves);
+        return new AnnealingResult(best, attempts, validCandidates, acceptedMoves, StopReason.ITERATION_LIMIT);
     }
 
     public static boolean shouldAccept(int currentEnergy, int candidateEnergy,

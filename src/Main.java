@@ -37,6 +37,7 @@ public class Main {
         double coolingRate;
         long seed;
         int beamWidth;
+        long timeLimitMillis;
         try (Scanner scanner = new Scanner(System.in)) {
             System.out.println("Zgjidh llojin e sekuences:");
             System.out.println("1. Sekuence HP");
@@ -134,12 +135,19 @@ public class Main {
                 System.out.println("Vlere e pavlefshme per " + parameter + ": " + e.getMessage());
                 return;
             }
+            Long limit = readTimeLimit(scanner);
+            if (limit == null) {
+                return;
+            }
+            timeLimitMillis = limit;
         }
 
         System.out.println("Parametrat e perdorur:");
         System.out.println("SA: perpjekje=" + maxIterations + ", temperatura=" + initialTemperature
                 + ", ftohja=" + coolingRate + ", seed=" + seed);
         System.out.println("Beam Search: gjeresia=" + beamWidth);
+        System.out.println("Kufiri kohor per secilin algoritëm: "
+                + (timeLimitMillis == 0 ? "pa kufi" : timeLimitMillis + " ms"));
         for (int i = 0; i < hpSequence.length(); i++) {
             protein.addPosition(new Position(i, 0, 0));
         }
@@ -149,7 +157,7 @@ public class Main {
         Random random = new Random(seed);
         long saStart = System.nanoTime();
         AnnealingResult saStats = SimulatedAnnealing.optimizeWithStats(protein, maxIterations, initialTemperature,
-                coolingRate, random);
+                coolingRate, random, timeLimitMillis);
         long saElapsedNanos = System.nanoTime() - saStart;
         Protein best = saStats.getBestProtein();
         showResult(best, hpSequence);
@@ -159,13 +167,14 @@ public class Main {
         System.out.println("Perpjekjet pa kandidat: " + (saStats.getAttempts() - saStats.getValidCandidates()));
         System.out.println("Kandidatet e refuzuar nga rregulli i pranimit: "
                 + (saStats.getValidCandidates() - saStats.getAcceptedMoves()));
+        System.out.println("Arsyeja e ndalimit: " + saStats.getStopReason().getDescription());
         System.out.printf(Locale.ROOT, "Koha e ekzekutimit: %.3f ms%n", saElapsedNanos / 1_000_000.0);
 
         System.out.println();
         System.out.println("Beam Search");
         System.out.println("Gjeresia: " + beamWidth);
         long beamStart = System.nanoTime();
-        BeamSearchResult beamStats = BeamSearch.searchWithStats(hpSequence, beamWidth);
+        BeamSearchResult beamStats = BeamSearch.searchWithStats(hpSequence, beamWidth, timeLimitMillis);
         long beamElapsedNanos = System.nanoTime() - beamStart;
         Protein beamResult = beamStats.getBestProtein();
         if (beamResult == null) {
@@ -178,7 +187,31 @@ public class Main {
         System.out.println("Kandidatet e ruajtur gjithsej gjate niveleve: " + beamStats.getRetainedCandidates());
         System.out.println("Kandidatet e larguar nga kufiri i gjeresise: " + beamStats.getPrunedCandidates());
         System.out.println("Nivelet e perfunduara: " + beamStats.getCompletedLevels());
+        System.out.println("Arsyeja e ndalimit: " + beamStats.getStopReason().getDescription());
         System.out.printf(Locale.ROOT, "Koha e ekzekutimit: %.3f ms%n", beamElapsedNanos / 1_000_000.0);
+    }
+
+    private static Long readTimeLimit(Scanner scanner) {
+        System.out.println("Enter ose 0 do te thote pa kufi kohor.");
+        while (true) {
+            System.out.println("Kufiri kohor për secilin algoritëm në ms [Enter = pa kufi]:");
+            if (!scanner.hasNextLine()) {
+                return null;
+            }
+            String value = scanner.nextLine().trim();
+            if (value.isEmpty()) {
+                return 0L;
+            }
+            try {
+                long limit = Long.parseLong(value);
+                if (limit < 0) {
+                    throw new IllegalArgumentException("Kufiri nuk mund te jete negativ.");
+                }
+                return limit;
+            } catch (IllegalArgumentException e) {
+                System.out.println("Kufiri kohor duhet te jete numer i plote jo negativ ne ms. Provo perseri.");
+            }
+        }
     }
 
     private static String readParameter(Scanner scanner, String name, String defaultValue) {

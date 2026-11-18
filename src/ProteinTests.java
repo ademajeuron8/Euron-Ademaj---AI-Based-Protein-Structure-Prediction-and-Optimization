@@ -1,6 +1,7 @@
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
+import java.util.function.LongSupplier;
 
 public class ProteinTests {
     public static void main(String[] args) {
@@ -90,6 +91,8 @@ public class ProteinTests {
         testAminoAcidConverter();
         testAnnealingStats();
         testBeamSearchStats();
+        testAnnealingTimeLimits();
+        testBeamTimeLimits();
     }
 
     private static void demonstrateCopiesAndMoves() {
@@ -1167,6 +1170,156 @@ public class ProteinTests {
                         && noResult.getRetainedCandidates() == 3_000_000_000L
                         && noResult.getPrunedCandidates() == 4_000_000_000L && noResult.getCompletedLevels() == 2,
                 "Beam stats: rezultati pa proteine lexohet normalisht dhe ruan numeruesit long");
+    }
+
+    private static void testAnnealingTimeLimits() {
+        Position[] initialPositions = {
+                new Position(0, 0, 0), new Position(1, 0, 0),
+                new Position(1, 1, 0), new Position(1, 2, 0)
+        };
+        Protein initial = createProtein("HHHH", initialPositions);
+        ControlledAnnealingRandom noMoves = new ControlledAnnealingRandom(new int[0]);
+        AnnealingResult immediate = SimulatedAnnealing.optimizeWithStats(initial, 5, 2, 0.5, noMoves,
+                1, new ControlledNanoClock(0, 1_000_000));
+        check(immediate.getStopReason() == StopReason.TIME_LIMIT && immediate.getAttempts() == 0
+                        && immediate.getValidCandidates() == 0 && immediate.getAcceptedMoves() == 0,
+                "Time limit: SA skadon para perpjekjes se pare pa konsumuar Random");
+        Protein initialCopy = immediate.getBestProtein();
+        check(initialCopy != initial && initialCopy.isComplete()
+                        && sameCoordinates(initialCopy, initial, initialPositions.length),
+                "Time limit: SA pa perpjekje ruan kopje te pavarur te fillimit");
+
+        ControlledNanoClock zeroClock = new ControlledNanoClock(0, 1_000_000);
+        AnnealingResult zero = SimulatedAnnealing.optimizeWithStats(initial, 0, 2, 0.5, noMoves, 1, zeroClock);
+        check(zero.getStopReason() == StopReason.ITERATION_LIMIT && zero.getAttempts() == 0 && zeroClock.index == 1,
+                "Time limit: zero iteracione ndalen nga kufiri i iteracioneve");
+
+        ControlledAnnealingRandom moves = new ControlledAnnealingRandom(new int[]{0, 1, 0, 2}, 0.0);
+        ControlledNanoClock afterTwo = new ControlledNanoClock(0, 0, 500_000, 1_000_000);
+        AnnealingResult stopped = SimulatedAnnealing.optimizeWithStats(initial, 5, 2, 0.5, moves, 1, afterTwo);
+        check(stopped.getStopReason() == StopReason.TIME_LIMIT && stopped.getAttempts() == 2
+                        && stopped.getValidCandidates() == 2 && stopped.getAcceptedMoves() == 2
+                        && moves.intIndex == 4 && moves.doubleIndex == 1 && afterTwo.index == 4,
+                "Time limit: SA kontrollon kohen vetem para perpjekjeve dhe perfundon dy hapa");
+        check(stopped.getBestProtein().calculateEnergy() == -1
+                        && sameCoordinates(stopped.getBestProtein(), createSquare("HHHH"), 4),
+                "Time limit: SA kthen best edhe pasi eshte pranuar nje perkeqesim");
+        checkCoordinates(initial, initialPositions, "Time limit: SA nuk ndryshon inputin");
+
+        Random oldRandom = new Random(2025);
+        Random unlimitedRandom = new Random(2025);
+        AnnealingResult oldApi = SimulatedAnnealing.optimizeWithStats(initial, 100, 2, 0.995, oldRandom);
+        ControlledNanoClock unusedClock = new ControlledNanoClock();
+        AnnealingResult unlimited = SimulatedAnnealing.optimizeWithStats(initial, 100, 2, 0.995,
+                unlimitedRandom, 0, unusedClock);
+        check(sameCoordinates(oldApi.getBestProtein(), unlimited.getBestProtein(), 4)
+                        && oldApi.getBestProtein().calculateEnergy() == unlimited.getBestProtein().calculateEnergy()
+                        && oldApi.getAttempts() == unlimited.getAttempts()
+                        && oldApi.getValidCandidates() == unlimited.getValidCandidates()
+                        && oldApi.getAcceptedMoves() == unlimited.getAcceptedMoves()
+                        && unlimited.getStopReason() == StopReason.ITERATION_LIMIT && unusedClock.index == 0
+                        && oldRandom.nextLong() == unlimitedRandom.nextLong(),
+                "Time limit: SA pa kufi ruan koordinatat, energjine, statistikat dhe serine Random");
+        check(sameCoordinates(SimulatedAnnealing.optimize(initial, 100, 2, 0.995, new Random(2025), 0),
+                        unlimited.getBestProtein(), 4),
+                "Time limit: varianti optimize me kufi zero eshte i perputhshem");
+
+        Protein single = createProtein("H", new Position[]{new Position(0, 0, 0)});
+        AnnealingResult huge = SimulatedAnnealing.optimizeWithStats(single, 1, 2, 0.5, noMoves,
+                Long.MAX_VALUE, new ControlledNanoClock(0, Long.MAX_VALUE));
+        check(huge.getAttempts() == 1 && huge.getStopReason() == StopReason.ITERATION_LIMIT,
+                "Time limit: kufiri Long.MAX_VALUE ms nuk tejmbushet gjate krahasimit");
+        AnnealingResult wrapped = SimulatedAnnealing.optimizeWithStats(single, 1, 2, 0.5, noMoves,
+                1, new ControlledNanoClock(Long.MAX_VALUE - 499_999, Long.MIN_VALUE + 500_000));
+        check(wrapped.getAttempts() == 0 && wrapped.getStopReason() == StopReason.TIME_LIMIT,
+                "Time limit: diferenca nanoTime trajton kalimin permes kufirit long");
+
+        boolean negativeRejected = false;
+        try {
+            SimulatedAnnealing.optimizeWithStats(initial, 0, 2, 0.5, noMoves, -1);
+        } catch (IllegalArgumentException e) {
+            negativeRejected = true;
+        }
+        check(negativeRejected, "Time limit: SA refuzon kufirin negativ");
+    }
+
+    private static void testBeamTimeLimits() {
+        BeamSearchResult immediate = BeamSearch.searchWithStats("HHHH", 2, 1,
+                new ControlledNanoClock(0, 1_000_000));
+        check(immediate.getBestProtein() == null && immediate.getStopReason() == StopReason.TIME_LIMIT
+                        && immediate.getExpandedStates() == 0 && immediate.getGeneratedCandidates() == 0
+                        && immediate.getRetainedCandidates() == 0 && immediate.getPrunedCandidates() == 0
+                        && immediate.getCompletedLevels() == 0,
+                "Time limit: Beam skadon para nivelit te pare pa rezultat te pjesshem");
+
+        ControlledNanoClock afterThree = new ControlledNanoClock(0, 0, 100_000, 200_000, 1_000_000);
+        BeamSearchResult partial = BeamSearch.searchWithStats("HHHH", 2, 1, afterThree);
+        check(partial.getBestProtein() == null && partial.getStopReason() == StopReason.TIME_LIMIT
+                        && partial.getCompletedLevels() == 3 && partial.getExpandedStates() == 4
+                        && partial.getGeneratedCandidates() == 17 && partial.getRetainedCandidates() == 5
+                        && partial.getPrunedCandidates() == 12 && afterThree.index == 5,
+                "Time limit: Beam perfundon te gjithe prinderit e nivelit dhe nuk kthen strukture te pjesshme");
+
+        ControlledNanoClock lastLevel = new ControlledNanoClock(0, 0, 0, 1_000_000);
+        BeamSearchResult complete = BeamSearch.searchWithStats("HH", 2, 1, lastLevel);
+        check(complete.getBestProtein() != null && complete.getBestProtein().isComplete()
+                        && complete.getStopReason() == StopReason.COMPLETED && complete.getCompletedLevels() == 2
+                        && complete.getExpandedStates() == 2 && complete.getGeneratedCandidates() == 7
+                        && complete.getRetainedCandidates() == 3 && complete.getPrunedCandidates() == 4
+                        && lastLevel.index == 3,
+                "Time limit: perfundimi i nivelit te fundit ka perparesi dhe nuk kontrollohet perseri koha");
+
+        BeamSearchResult oldApi = BeamSearch.searchWithStats("HHHH", 30);
+        ControlledNanoClock unusedClock = new ControlledNanoClock();
+        BeamSearchResult unlimited = BeamSearch.searchWithStats("HHHH", 30, 0, unusedClock);
+        check(sameCoordinates(oldApi.getBestProtein(), unlimited.getBestProtein(), 4)
+                        && oldApi.getBestProtein().calculateEnergy() == unlimited.getBestProtein().calculateEnergy()
+                        && oldApi.getExpandedStates() == unlimited.getExpandedStates()
+                        && oldApi.getGeneratedCandidates() == unlimited.getGeneratedCandidates()
+                        && oldApi.getRetainedCandidates() == unlimited.getRetainedCandidates()
+                        && oldApi.getPrunedCandidates() == unlimited.getPrunedCandidates()
+                        && oldApi.getCompletedLevels() == unlimited.getCompletedLevels()
+                        && unlimited.getStopReason() == StopReason.COMPLETED && unusedClock.index == 0,
+                "Time limit: Beam pa kufi ruan rezultatin, rendin dhe te gjitha statistikat");
+        check(sameCoordinates(BeamSearch.search("HHHH", 30, 0), unlimited.getBestProtein(), 4),
+                "Time limit: varianti search me kufi zero eshte i perputhshem");
+        BeamSearchResult noCandidates = new BeamSearchResult(null, 4, 7, 3, 4, 2);
+        check(noCandidates.getStopReason() == StopReason.NO_CANDIDATES && noCandidates.getBestProtein() == null,
+                "Time limit: mungesa e kandidateve ka arsye te ndryshme nga skadimi");
+
+        ControlledNanoClock separateStarts = new ControlledNanoClock(0, 2_000_000, 2_000_000, 2_000_000);
+        Protein single = createProtein("H", new Position[]{new Position(0, 0, 0)});
+        AnnealingResult firstSearch = SimulatedAnnealing.optimizeWithStats(single, 1, 2, 0.5,
+                new ControlledAnnealingRandom(new int[0]), 1, separateStarts);
+        BeamSearchResult secondSearch = BeamSearch.searchWithStats("H", 2, 1, separateStarts);
+        check(firstSearch.getStopReason() == StopReason.TIME_LIMIT && secondSearch.getStopReason() == StopReason.COMPLETED
+                        && secondSearch.getBestProtein().isComplete() && separateStarts.index == 4,
+                "Time limit: secili algoritem nis kufirin e vet edhe kur perdor te njejten ore");
+
+        boolean negativeRejected = false;
+        try {
+            BeamSearch.searchWithStats("HH", 2, -1);
+        } catch (IllegalArgumentException e) {
+            negativeRejected = true;
+        }
+        check(negativeRejected, "Time limit: Beam refuzon kufirin negativ");
+    }
+
+    private static class ControlledNanoClock implements LongSupplier {
+        private final long[] values;
+        private int index;
+
+        ControlledNanoClock(long... values) {
+            this.values = values;
+        }
+
+        @Override
+        public long getAsLong() {
+            if (index >= values.length) {
+                throw new AssertionError("Lexim shtese i kohes gjate testit.");
+            }
+            return values[index++];
+        }
     }
 
     private static void checkCoordinates(Protein protein, Position[] expectedPositions, String description) {

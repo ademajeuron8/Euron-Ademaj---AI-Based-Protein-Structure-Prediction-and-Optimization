@@ -1,5 +1,6 @@
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.LongSupplier;
 
 public class BeamSearch {
     // null do te thote se deget e ruajtura ngecen, jo se eshte provuar
@@ -8,7 +9,21 @@ public class BeamSearch {
         return searchWithStats(hpSequence, beamWidth).getBestProtein();
     }
 
+    public static Protein search(String hpSequence, int beamWidth, long timeLimitMillis) {
+        return searchWithStats(hpSequence, beamWidth, timeLimitMillis).getBestProtein();
+    }
+
     public static BeamSearchResult searchWithStats(String hpSequence, int beamWidth) {
+        return searchWithStats(hpSequence, beamWidth, 0);
+    }
+
+    public static BeamSearchResult searchWithStats(String hpSequence, int beamWidth, long timeLimitMillis) {
+        return searchWithStats(hpSequence, beamWidth, timeLimitMillis, System::nanoTime);
+    }
+
+    static BeamSearchResult searchWithStats(String hpSequence, int beamWidth, long timeLimitMillis,
+                                            LongSupplier nanoTime) {
+        SearchTimeLimit limit = new SearchTimeLimit(timeLimitMillis, nanoTime);
         if (beamWidth <= 0) {
             throw new IllegalArgumentException("Beam width duhet te jete pozitiv.");
         }
@@ -22,6 +37,10 @@ public class BeamSearch {
         int completedLevels = 0;
 
         for (int step = 0; step < hpSequence.length(); step++) {
+            if (limit.isExpired()) {
+                return new BeamSearchResult(null, expandedStates, generatedCandidates,
+                        retainedCandidates, prunedCandidates, completedLevels, StopReason.TIME_LIMIT);
+            }
             ArrayList<Protein> candidates = new ArrayList<>();
             for (Protein protein : beam) {
                 expandedStates++;
@@ -30,7 +49,7 @@ public class BeamSearch {
             generatedCandidates += candidates.size();
             if (candidates.isEmpty()) {
                 return new BeamSearchResult(null, expandedStates, generatedCandidates,
-                        retainedCandidates, prunedCandidates, completedLevels);
+                        retainedCandidates, prunedCandidates, completedLevels, StopReason.NO_CANDIDATES);
             }
             beam = selectBestCandidates(candidates, beamWidth);
             retainedCandidates += beam.size();
@@ -39,7 +58,7 @@ public class BeamSearch {
         }
 
         return new BeamSearchResult(beam.get(0), expandedStates, generatedCandidates,
-                retainedCandidates, prunedCandidates, completedLevels);
+                retainedCandidates, prunedCandidates, completedLevels, StopReason.COMPLETED);
     }
 
     // Ne Beam Search krahasohen kandidate me te njejten sekuence HP
