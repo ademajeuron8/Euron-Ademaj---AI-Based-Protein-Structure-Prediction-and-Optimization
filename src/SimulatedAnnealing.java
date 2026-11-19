@@ -13,6 +13,12 @@ public class SimulatedAnnealing {
                 timeLimitMillis).getBestProtein();
     }
 
+    public static Protein optimize(Protein initial, int maxIterations, double initialTemperature,
+                                   double coolingRate, Random random, long timeLimitMillis, int contactWeight) {
+        return optimizeWithStats(initial, maxIterations, initialTemperature, coolingRate, random,
+                timeLimitMillis, contactWeight).getBestProtein();
+    }
+
     public static AnnealingResult optimizeWithStats(Protein initial, int maxIterations, double initialTemperature,
                                                    double coolingRate, Random random) {
         return optimizeWithStats(initial, maxIterations, initialTemperature, coolingRate, random, 0);
@@ -20,14 +26,27 @@ public class SimulatedAnnealing {
 
     public static AnnealingResult optimizeWithStats(Protein initial, int maxIterations, double initialTemperature,
                                                    double coolingRate, Random random, long timeLimitMillis) {
+        return optimizeWithStats(initial, maxIterations, initialTemperature, coolingRate, random, timeLimitMillis, 1);
+    }
+
+    public static AnnealingResult optimizeWithStats(Protein initial, int maxIterations, double initialTemperature,
+                                                   double coolingRate, Random random, long timeLimitMillis,
+                                                   int contactWeight) {
         return optimizeWithStats(initial, maxIterations, initialTemperature, coolingRate, random,
-                timeLimitMillis, System::nanoTime);
+                timeLimitMillis, contactWeight, System::nanoTime);
     }
 
     // Burimi i kohes mund te zevendesohet nga testet ne te njejten pakete.
     static AnnealingResult optimizeWithStats(Protein initial, int maxIterations, double initialTemperature,
                                             double coolingRate, Random random, long timeLimitMillis,
                                             LongSupplier nanoTime) {
+        return optimizeWithStats(initial, maxIterations, initialTemperature, coolingRate, random,
+                timeLimitMillis, 1, nanoTime);
+    }
+
+    static AnnealingResult optimizeWithStats(Protein initial, int maxIterations, double initialTemperature,
+                                            double coolingRate, Random random, long timeLimitMillis,
+                                            int contactWeight, LongSupplier nanoTime) {
         SearchTimeLimit limit = new SearchTimeLimit(timeLimitMillis, nanoTime);
         if (initial == null) {
             throw new IllegalArgumentException("Proteina fillestare nuk mund te jete null.");
@@ -47,11 +66,14 @@ public class SimulatedAnnealing {
         if (!Double.isFinite(coolingRate) || coolingRate <= 0 || coolingRate >= 1) {
             throw new IllegalArgumentException("Koeficienti i ftohjes duhet te jete i fundem dhe midis 0 dhe 1.");
         }
+        if (contactWeight <= 0) {
+            throw new IllegalArgumentException("Pesha e kontaktit H-H duhet te jete pozitive.");
+        }
 
         Protein current = initial.copy();
-        int currentEnergy = current.calculateEnergy();
+        long currentEnergy = current.calculateEnergy(contactWeight);
         Protein best = current.copy();
-        int bestEnergy = currentEnergy;
+        long bestEnergy = currentEnergy;
         double temperature = initialTemperature;
         int attempts = 0;
         int validCandidates = 0;
@@ -65,7 +87,7 @@ public class SimulatedAnnealing {
             Protein candidate = current.createRandomNeighbor(random);
             if (candidate != null) {
                 validCandidates++;
-                int candidateEnergy = candidate.calculateEnergy();
+                long candidateEnergy = candidate.calculateEnergy(contactWeight);
                 if (shouldAccept(currentEnergy, candidateEnergy, temperature, random)) {
                     current = candidate;
                     currentEnergy = candidateEnergy;
@@ -86,6 +108,11 @@ public class SimulatedAnnealing {
 
     public static boolean shouldAccept(int currentEnergy, int candidateEnergy,
                                        double temperature, Random random) {
+        return shouldAccept((long) currentEnergy, (long) candidateEnergy, temperature, random);
+    }
+
+    public static boolean shouldAccept(long currentEnergy, long candidateEnergy,
+                                       double temperature, Random random) {
         if (random == null) {
             throw new IllegalArgumentException("Random nuk mund te jete null.");
         }
@@ -93,15 +120,19 @@ public class SimulatedAnnealing {
             throw new IllegalArgumentException("Temperatura duhet te jete e fundme dhe jo negative.");
         }
 
-        long delta = (long) candidateEnergy - currentEnergy;
-        if (delta <= 0) {
+        if (candidateEnergy <= currentEnergy) {
             return true;
         }
         if (temperature == 0) {
             return false;
         }
 
-        double probability = Math.exp(-((double) delta) / temperature);
+        // Me shenja te ndryshme, zbrit ne double qe diferenca te mos tejmbushe long.
+        // Me te njejten shenje, zbrit fillimisht ne long per te ruajtur edhe diferencat e vogla.
+        double delta = currentEnergy < 0 && candidateEnergy >= 0
+                ? (double) candidateEnergy - (double) currentEnergy
+                : (double) (candidateEnergy - currentEnergy);
+        double probability = Math.exp(-delta / temperature);
         return random.nextDouble() < probability;
     }
 }

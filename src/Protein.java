@@ -281,11 +281,18 @@ public class Protein {
     }
 
     public int calculateEnergy() {
+        return Math.toIntExact(calculateEnergy(1));
+    }
+
+    public long calculateEnergy(int contactWeight) {
+        if (contactWeight <= 0) {
+            throw new IllegalArgumentException("Pesha e kontaktit H-H duhet te jete pozitive.");
+        }
         if (!isValid()) {
             throw new IllegalStateException("Energjia nuk mund te llogaritet per nje strukture te pavlefshme.");
         }
 
-        int energy = 0;
+        long contacts = 0;
 
         // Numero vetem kontaktet H-H qe nuk jane lidhje te drejtperdrejta.
         for (int i = 0; i < positions.size(); i++) {
@@ -293,11 +300,11 @@ public class Protein {
                 if (hpSequence.charAt(i) == 'H'
                         && hpSequence.charAt(j) == 'H'
                         && positions.get(i).isNeighbor(positions.get(j))) {
-                    energy--;
+                    contacts++;
                 }
             }
         }
 
-        return energy;
+        return -((long) contactWeight) * contacts;
     }
 }

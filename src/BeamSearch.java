@@ -29,6 +29,11 @@ public class BeamSearch {
         return searchWithStats(hpSequence, beamWidth, timeLimitMillis, removeRotatedCopies).getBestProtein();
     }
 
+    public static Protein search(String hpSequence, int beamWidth, long timeLimitMillis,
+                                 boolean removeRotatedCopies, int contactWeight) {
+        return searchWithStats(hpSequence, beamWidth, timeLimitMillis, removeRotatedCopies, contactWeight).getBestProtein();
+    }
+
     public static BeamSearchResult searchWithStats(String hpSequence, int beamWidth) {
         return searchWithStats(hpSequence, beamWidth, 0);
     }
@@ -43,7 +48,12 @@ public class BeamSearch {
 
     public static BeamSearchResult searchWithStats(String hpSequence, int beamWidth, long timeLimitMillis,
                                                    boolean removeRotatedCopies) {
-        return searchWithStats(hpSequence, beamWidth, timeLimitMillis, removeRotatedCopies, System::nanoTime);
+        return searchWithStats(hpSequence, beamWidth, timeLimitMillis, removeRotatedCopies, 1);
+    }
+
+    public static BeamSearchResult searchWithStats(String hpSequence, int beamWidth, long timeLimitMillis,
+                                                   boolean removeRotatedCopies, int contactWeight) {
+        return searchWithStats(hpSequence, beamWidth, timeLimitMillis, removeRotatedCopies, contactWeight, System::nanoTime);
     }
 
     static BeamSearchResult searchWithStats(String hpSequence, int beamWidth, long timeLimitMillis,
@@ -53,9 +63,17 @@ public class BeamSearch {
 
     static BeamSearchResult searchWithStats(String hpSequence, int beamWidth, long timeLimitMillis,
                                             boolean removeRotatedCopies, LongSupplier nanoTime) {
+        return searchWithStats(hpSequence, beamWidth, timeLimitMillis, removeRotatedCopies, 1, nanoTime);
+    }
+
+    static BeamSearchResult searchWithStats(String hpSequence, int beamWidth, long timeLimitMillis,
+                                            boolean removeRotatedCopies, int contactWeight, LongSupplier nanoTime) {
         SearchTimeLimit limit = new SearchTimeLimit(timeLimitMillis, nanoTime);
         if (beamWidth <= 0) {
             throw new IllegalArgumentException("Beam width duhet te jete pozitiv.");
+        }
+        if (contactWeight <= 0) {
+            throw new IllegalArgumentException("Pesha e kontaktit H-H duhet te jete pozitive.");
         }
         Protein initial = new Protein(hpSequence);
         ArrayList<Protein> beam = new ArrayList<>();
@@ -87,7 +105,7 @@ public class BeamSearch {
                 candidates = removeRotatedDuplicates(candidates, step + 1);
                 rotatedDuplicates += beforeRemoval - candidates.size();
             }
-            beam = selectBestCandidates(candidates, beamWidth);
+            beam = selectBestCandidates(candidates, beamWidth, contactWeight);
             retainedCandidates += beam.size();
             prunedCandidates += candidates.size() - beam.size();
             completedLevels++;
@@ -147,11 +165,18 @@ public class BeamSearch {
     // Ne Beam Search krahasohen kandidate me te njejten sekuence HP
     // dhe te njejtin numer pozicionesh te vendosura.
     public static ArrayList<Protein> selectBestCandidates(List<Protein> candidates, int beamWidth) {
+        return selectBestCandidates(candidates, beamWidth, 1);
+    }
+
+    public static ArrayList<Protein> selectBestCandidates(List<Protein> candidates, int beamWidth, int contactWeight) {
         if (candidates == null) {
             throw new IllegalArgumentException("Lista e kandidateve nuk mund te jete null.");
         }
         if (beamWidth <= 0) {
             throw new IllegalArgumentException("Beam width duhet te jete pozitiv.");
+        }
+        if (contactWeight <= 0) {
+            throw new IllegalArgumentException("Pesha e kontaktit H-H duhet te jete pozitive.");
         }
 
         ArrayList<CandidateEnergy> ranked = new ArrayList<>();
@@ -159,12 +184,12 @@ public class BeamSearch {
             if (candidate == null) {
                 throw new IllegalArgumentException("Kandidati nuk mund te jete null.");
             }
-            int energy = candidate.calculateEnergy();
+            long energy = candidate.calculateEnergy(contactWeight);
             ranked.add(new CandidateEnergy(candidate, energy));
         }
 
         // List.sort ruan rendin fillestar kur energjite jane te barabarta.
-        ranked.sort((first, second) -> Integer.compare(first.energy, second.energy));
+        ranked.sort((first, second) -> Long.compare(first.energy, second.energy));
         ArrayList<Protein> selected = new ArrayList<>();
         int count = Math.min(beamWidth, ranked.size());
         for (int i = 0; i < count; i++) {
@@ -175,9 +200,9 @@ public class BeamSearch {
 
     private static class CandidateEnergy {
         private final Protein protein;
-        private final int energy;
+        private final long energy;
 
-        CandidateEnergy(Protein protein, int energy) {
+        CandidateEnergy(Protein protein, long energy) {
             this.protein = protein;
             this.energy = energy;
         }

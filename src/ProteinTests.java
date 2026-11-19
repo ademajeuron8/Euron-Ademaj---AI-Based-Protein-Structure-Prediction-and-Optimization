@@ -95,6 +95,9 @@ public class ProteinTests {
         testBeamTimeLimits();
         testBeamRotatedShapes();
         testBeamRotationSearch();
+        testWeightedEnergy();
+        testWeightedAnnealing();
+        testWeightedBeamSearch();
     }
 
     private static void demonstrateCopiesAndMoves() {
@@ -1464,6 +1467,170 @@ public class ProteinTests {
                         && sameCoordinates(BeamSearch.search("HHHH", 30, true), folded.getBestProtein(), 4)
                         && sameCoordinates(BeamSearch.search("HHHH", 30, 0, true), folded.getBestProtein(), 4),
                 "Beam rotations: variantet publike dhe burimi i kohes ruajne sjelljen pa kufi");
+    }
+
+    private static void testWeightedEnergy() {
+        Protein square = createSquare("HHHH");
+        Protein line = createProtein("HHHH", new Position[]{
+                new Position(0, 0, 0), new Position(1, 0, 0),
+                new Position(2, 0, 0), new Position(3, 0, 0)
+        });
+        check(square.calculateEnergy() == -1 && square.calculateEnergy(1) == -1L
+                        && square.calculateEnergy(2) == -2L,
+                "Weighted energy: katrori HHHH ka vetem nje kontakt, me energji -1 ose -2");
+        check(line.calculateEnergy(1) == 0 && line.calculateEnergy(2) == 0,
+                "Weighted energy: vija HHHH ka energji zero per te dyja peshat");
+        Protein rectangle = createProtein("HHHHHH", new Position[]{
+                new Position(0, 0, 0), new Position(1, 0, 0), new Position(2, 0, 0),
+                new Position(2, 1, 0), new Position(1, 1, 0), new Position(0, 1, 0)
+        });
+        check(rectangle.calculateEnergy() == -2 && rectangle.calculateEnergy(Integer.MAX_VALUE) == -4_294_967_294L,
+                "Weighted energy: dy kontakte me peshen maksimale llogariten ne long pa overflow int");
+        Protein pair = createProtein("HH", new Position[]{new Position(0, 0, 0), new Position(1, 0, 0)});
+        check(createSquare("HPPH").calculateEnergy(2) == -2 && createSquare("HPPP").calculateEnergy(2) == 0
+                        && createSquare("PPPP").calculateEnergy(2) == 0 && pair.calculateEnergy(2) == 0,
+                "Weighted energy: ruhen kategorite H/P dhe perjashtimi i lidhjeve te drejtperdrejta");
+
+        for (int weight : new int[]{0, -1}) {
+            boolean energyRejected = false;
+            boolean annealingRejected = false;
+            boolean beamRejected = false;
+            boolean selectionRejected = false;
+            try {
+                square.calculateEnergy(weight);
+            } catch (IllegalArgumentException e) {
+                energyRejected = true;
+            }
+            try {
+                SimulatedAnnealing.optimizeWithStats(square, 0, 2, 0.995, new Random(2025), 0, weight);
+            } catch (IllegalArgumentException e) {
+                annealingRejected = true;
+            }
+            try {
+                BeamSearch.searchWithStats("HHHH", 30, 0, true, weight);
+            } catch (IllegalArgumentException e) {
+                beamRejected = true;
+            }
+            try {
+                BeamSearch.selectBestCandidates(List.of(), 30, weight);
+            } catch (IllegalArgumentException e) {
+                selectionRejected = true;
+            }
+            check(energyRejected && annealingRejected && beamRejected && selectionRejected,
+                    "Weighted energy: pesha " + weight + " refuzohet ne llogaritje dhe algoritme");
+        }
+    }
+
+    private static void testWeightedAnnealing() {
+        Protein square = createSquare("HHHH");
+        check(SimulatedAnnealing.shouldAccept(square.calculateEnergy(1), 0L, 2, new ControlledDoubleRandom(0.5))
+                        && !SimulatedAnnealing.shouldAccept(square.calculateEnergy(2), 0L, 2,
+                        new ControlledDoubleRandom(0.5)),
+                "Weighted SA: humbja e nje kontakti me T=2 dhe random=0.5 pranohet me peshe 1 por jo me 2");
+        // I njejti propozim e hap katrorin ne (1,2,0), duke humbur kontaktin H-H.
+        ControlledAnnealingRandom unitRandom = new ControlledAnnealingRandom(new int[]{0, 2}, 0.5);
+        ControlledAnnealingRandom doubleRandom = new ControlledAnnealingRandom(new int[]{0, 2}, 0.5);
+        AnnealingResult unit = SimulatedAnnealing.optimizeWithStats(square, 1, 2, 0.995, unitRandom, 0, 1);
+        AnnealingResult doubled = SimulatedAnnealing.optimizeWithStats(square, 1, 2, 0.995, doubleRandom, 0, 2);
+        check(unit.getAttempts() == 1 && doubled.getAttempts() == 1
+                        && unit.getValidCandidates() == 1 && doubled.getValidCandidates() == 1
+                        && unit.getAcceptedMoves() == 1 && doubled.getAcceptedMoves() == 0
+                        && unitRandom.intIndex == 2 && doubleRandom.intIndex == 2
+                        && unitRandom.doubleIndex == 1 && doubleRandom.doubleIndex == 1,
+                "Weighted SA: cikli perdor realisht peshen ne vendimin e pranimit");
+        check(sameCoordinates(unit.getBestProtein(), square, 4)
+                        && sameCoordinates(doubled.getBestProtein(), square, 4)
+                        && unit.getBestProtein().calculateEnergy(1) == -1
+                        && doubled.getBestProtein().calculateEnergy(2) == -2 && square.calculateEnergy() == -1,
+                "Weighted SA: best dhe origjinali ruhen pas pranimit ose refuzimit te perkeqesimit");
+        check(SimulatedAnnealing.shouldAccept(Long.MIN_VALUE, Long.MIN_VALUE + 1, 2, new ControlledDoubleRandom(0.5))
+                        && !SimulatedAnnealing.shouldAccept(Long.MIN_VALUE, Long.MIN_VALUE + 1, 2,
+                        new ControlledDoubleRandom(0.7))
+                        && !SimulatedAnnealing.shouldAccept(Long.MIN_VALUE, Long.MAX_VALUE, 2,
+                        new ControlledDoubleRandom(0.0))
+                        && SimulatedAnnealing.shouldAccept(Long.MAX_VALUE, Long.MIN_VALUE, 2,
+                        new ControlledDoubleRandom()),
+                "Weighted SA: diferencat long ruhen sakte dhe nuk tejmbushen ne skaje");
+
+        for (long seed : new long[]{2025, -7}) {
+            Random oldRandom = new Random(seed);
+            Random weightedRandom = new Random(seed);
+            AnnealingResult oldApi = SimulatedAnnealing.optimizeWithStats(square, 100, 2, 0.995, oldRandom);
+            AnnealingResult weighted = SimulatedAnnealing.optimizeWithStats(square, 100, 2, 0.995,
+                    weightedRandom, 0, 1);
+            check(sameCoordinates(oldApi.getBestProtein(), weighted.getBestProtein(), 4)
+                            && oldApi.getBestProtein().calculateEnergy() == weighted.getBestProtein().calculateEnergy(1)
+                            && oldApi.getAttempts() == weighted.getAttempts()
+                            && oldApi.getValidCandidates() == weighted.getValidCandidates()
+                            && oldApi.getAcceptedMoves() == weighted.getAcceptedMoves()
+                            && oldApi.getStopReason() == weighted.getStopReason()
+                            && oldRandom.nextLong() == weightedRandom.nextLong(),
+                    "Weighted SA: pesha 1 ruan koordinatat, statistikat dhe serine Random me seed " + seed);
+        }
+        Protein wrapperBest = SimulatedAnnealing.optimize(square, 100, 2, 0.995, new Random(2025), 0, 2);
+        check(wrapperBest.isComplete() && wrapperBest.calculateEnergy(2) == -2,
+                "Weighted SA: varianti optimize ruan rezultatin me energji te peshuar");
+        AnnealingResult timed = SimulatedAnnealing.optimizeWithStats(square, 5, 2, 0.995,
+                new ControlledAnnealingRandom(new int[0]), 1, 2, new ControlledNanoClock(0, 1_000_000));
+        check(timed.getStopReason() == StopReason.TIME_LIMIT && timed.getAttempts() == 0
+                        && timed.getBestProtein().calculateEnergy(2) == -2,
+                "Weighted SA: kufiri kohor ruan strukturen dhe energjine e peshuar para hapit te pare");
+    }
+
+    private static void testWeightedBeamSearch() {
+        Protein line = createProtein("HHHHHH", new Position[]{
+                new Position(0, 0, 0), new Position(1, 0, 0), new Position(2, 0, 0),
+                new Position(3, 0, 0), new Position(4, 0, 0), new Position(5, 0, 0)
+        });
+        Protein oneContact = createProtein("HHHHHH", new Position[]{
+                new Position(0, 0, 0), new Position(1, 0, 0), new Position(1, 1, 0),
+                new Position(0, 1, 0), new Position(0, 1, 1), new Position(0, 1, 2)
+        });
+        Protein rectangle = createProtein("HHHHHH", new Position[]{
+                new Position(0, 0, 0), new Position(1, 0, 0), new Position(2, 0, 0),
+                new Position(2, 1, 0), new Position(1, 1, 0), new Position(0, 1, 0)
+        });
+        Protein tiedRectangle = rectangle.copy();
+        tiedRectangle.tryPivotRotation(0, 'Z', 1);
+        List<Protein> candidates = List.of(line, rectangle, oneContact, tiedRectangle);
+        for (int weight : new int[]{2, Integer.MAX_VALUE}) {
+            ArrayList<Protein> selected = BeamSearch.selectBestCandidates(candidates, 4, weight);
+            check(sameCoordinates(selected.get(0), rectangle, 6)
+                            && sameCoordinates(selected.get(1), tiedRectangle, 6)
+                            && sameCoordinates(selected.get(2), oneContact, 6)
+                            && sameCoordinates(selected.get(3), line, 6)
+                            && selected.get(0).calculateEnergy(weight) == -2L * weight
+                            && selected.get(2).calculateEnergy(weight) == -1L * weight,
+                    "Weighted Beam: renditja dhe barazimet ruhen me peshe " + weight + " duke perdorur long");
+        }
+        for (boolean removeCopies : new boolean[]{false, true}) {
+            BeamSearchResult reference = BeamSearch.searchWithStats("HHPHPHH", 30, 0, removeCopies);
+            for (int weight : new int[]{2, Integer.MAX_VALUE}) {
+                BeamSearchResult weighted = BeamSearch.searchWithStats("HHPHPHH", 30, 0, removeCopies, weight);
+                check(sameCoordinates(reference.getBestProtein(), weighted.getBestProtein(), 7)
+                                && weighted.getBestProtein().calculateEnergy(weight)
+                                == (long) reference.getBestProtein().calculateEnergy() * weight
+                                && reference.getExpandedStates() == weighted.getExpandedStates()
+                                && reference.getGeneratedCandidates() == weighted.getGeneratedCandidates()
+                                && reference.getRetainedCandidates() == weighted.getRetainedCandidates()
+                                && reference.getPrunedCandidates() == weighted.getPrunedCandidates()
+                                && reference.getRotatedDuplicates() == weighted.getRotatedDuplicates()
+                                && reference.getCompletedLevels() == weighted.getCompletedLevels()
+                                && reference.getStopReason() == weighted.getStopReason(),
+                        "Weighted Beam: pesha " + weight + " nuk ndryshon strukturen ose statistikat, kopjet=" + removeCopies);
+            }
+        }
+        Protein best = BeamSearch.search("HHHH", 30, 0, true, 2);
+        check(best.isComplete() && best.calculateEnergy(2) == -2
+                        && sameCoordinates(best, BeamSearch.search("HHHH", 30, true), 4),
+                "Weighted Beam: varianti search ruan katrorin me energji -2");
+        ControlledNanoClock afterTwo = new ControlledNanoClock(0, 0, 500_000, 1_000_000);
+        BeamSearchResult timed = BeamSearch.searchWithStats("HHHH", 30, 1, true, 2, afterTwo);
+        check(timed.getStopReason() == StopReason.TIME_LIMIT && timed.getBestProtein() == null
+                        && timed.getCompletedLevels() == 2 && timed.getGeneratedCandidates() == 7
+                        && timed.getRetainedCandidates() == 2 && timed.getRotatedDuplicates() == 5
+                        && timed.getPrunedCandidates() == 0 && afterTwo.index == 4,
+                "Weighted Beam: pesha ruan kufirin kohor dhe numerimin e kopjeve te rrotulluara");
     }
 
     private static class ControlledNanoClock implements LongSupplier {
