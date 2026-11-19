@@ -93,6 +93,8 @@ public class ProteinTests {
         testBeamSearchStats();
         testAnnealingTimeLimits();
         testBeamTimeLimits();
+        testBeamRotatedShapes();
+        testBeamRotationSearch();
     }
 
     private static void demonstrateCopiesAndMoves() {
@@ -1303,6 +1305,165 @@ public class ProteinTests {
             negativeRejected = true;
         }
         check(negativeRejected, "Time limit: Beam refuzon kufirin negativ");
+    }
+
+    private static void testBeamRotatedShapes() {
+        Protein line = createProtein("HHH", new Position[]{
+                new Position(0, 0, 0), new Position(1, 0, 0), new Position(2, 0, 0)
+        });
+        Protein elbow = createProtein("HHH", new Position[]{
+                new Position(0, 0, 0), new Position(1, 0, 0), new Position(1, 1, 0)
+        });
+        Protein rotatedLine = createProtein("HHH", new Position[]{
+                new Position(0, 0, 0), new Position(0, 0, 1), new Position(0, 0, 2)
+        });
+        ArrayList<Protein> distinct = BeamSearch.removeRotatedDuplicates(List.of(line, elbow, rotatedLine), 3);
+        check(line.calculateEnergy() == 0 && elbow.calculateEnergy() == 0 && distinct.size() == 2
+                        && distinct.get(0) == line && distinct.get(1) == elbow,
+                "Beam rotations: vija dhe forma L kane energji te njejte por mbeten forma te ndryshme");
+        ArrayList<Protein> selected = BeamSearch.selectBestCandidates(distinct, 2);
+        check(sameCoordinates(selected.get(0), line, 3) && sameCoordinates(selected.get(1), elbow, 3),
+                "Beam rotations: ruhet rendi i pare edhe pas perzgjedhjes me energji te barabarta");
+
+        Protein spatial = createProtein("HHHH", new Position[]{
+                new Position(0, 0, 0), new Position(1, 0, 0),
+                new Position(1, 1, 0), new Position(1, 1, 1)
+        });
+        // Krijo orientime duke perdorur rrotullimet ekzistuese, jo algoritmin e celesit.
+        char[] baseAxes = {'Z', 'Z', 'Z', 'Z', 'Y', 'Y'};
+        int[] baseTurns = {0, 2, 1, 3, 1, 3};
+        char[] spinAxes = {'X', 'X', 'Y', 'Y', 'Z', 'Z'};
+        ArrayList<Protein> rotations = new ArrayList<>();
+        boolean allDifferent = true;
+        for (int direction = 0; direction < baseAxes.length; direction++) {
+            Protein base = spatial.copy();
+            if (baseTurns[direction] != 0) {
+                allDifferent &= base.tryPivotRotation(0, baseAxes[direction], baseTurns[direction]);
+            }
+            for (int turns = 0; turns < 4; turns++) {
+                Protein rotated = base.copy();
+                if (turns != 0) {
+                    allDifferent &= rotated.tryPivotRotation(0, spinAxes[direction], turns);
+                }
+                for (Protein previous : rotations) {
+                    allDifferent &= !sameCoordinates(previous, rotated, 4);
+                }
+                rotations.add(rotated);
+            }
+        }
+        check(allDifferent && rotations.size() == 24,
+                "Beam rotations: shembulli 3D ka 24 orientime te ndryshme ne test");
+        ArrayList<Protein> oneShape = BeamSearch.removeRotatedDuplicates(rotations, 4);
+        check(oneShape.size() == 1 && oneShape.get(0) == rotations.get(0)
+                        && sameCoordinates(oneShape.get(0), spatial, 4),
+                "Beam rotations: te 24 rrotullimet 3D njihen dhe ruhet kandidati i pare pa rrotulluar koordinatat");
+
+        Protein mirrored = createProtein("HHHH", new Position[]{
+                new Position(0, 0, 0), new Position(1, 0, 0),
+                new Position(1, 1, 0), new Position(1, 1, -1)
+        });
+        check(BeamSearch.removeRotatedDuplicates(List.of(spatial, mirrored), 4).size() == 2,
+                "Beam rotations: pasqyrimi i nje zinxhiri 3D nuk hiqet si rrotullim");
+
+        Protein bent = createProtein("HHHH", new Position[]{
+                new Position(0, 0, 0), new Position(1, 0, 0),
+                new Position(2, 0, 0), new Position(2, 1, 0)
+        });
+        Protein reversed = createProtein("HHHH", new Position[]{
+                new Position(2, 1, 0), new Position(2, 0, 0),
+                new Position(1, 0, 0), new Position(0, 0, 0)
+        });
+        check(BeamSearch.removeRotatedDuplicates(List.of(bent, reversed), 4).size() == 2,
+                "Beam rotations: rendi i sekuences nuk kthehet mbrapsht");
+
+        int maximum = Integer.MAX_VALUE;
+        Protein translated = createProtein("HHHH", new Position[]{
+                new Position(maximum - 1, maximum - 1, maximum - 1),
+                new Position(maximum, maximum - 1, maximum - 1),
+                new Position(maximum, maximum, maximum - 1), new Position(maximum, maximum, maximum)
+        });
+        Protein snapshot = translated.copy();
+        ArrayList<Protein> translatedShape = BeamSearch.removeRotatedDuplicates(List.of(translated, spatial), 4);
+        check(translatedShape.size() == 1 && translatedShape.get(0) == translated
+                        && sameCoordinates(translated, snapshot, 4) && sameCoordinates(spatial, rotations.get(0), 4),
+                "Beam rotations: hapat shmangin zhvendosjen dhe ruajne koordinatat prane kufirit int");
+    }
+
+    private static void testBeamRotationSearch() {
+        BeamSearchResult enabled = BeamSearch.searchWithStats("HH", 30, 0, true);
+        check(enabled.getCompletedLevels() == 2 && enabled.getExpandedStates() == 2
+                        && enabled.getGeneratedCandidates() == 7 && enabled.getRetainedCandidates() == 2
+                        && enabled.getRotatedDuplicates() == 5 && enabled.getPrunedCandidates() == 0,
+                "Beam rotations: HH aktiv jep gjithsej 7 gjenerime, 2 ruajtje, 5 kopje dhe 0 largime nga gjeresia");
+        BeamSearchResult disabled = BeamSearch.searchWithStats("HH", 30, 0, false);
+        check(disabled.getGeneratedCandidates() == 7 && disabled.getRetainedCandidates() == 7
+                        && disabled.getRotatedDuplicates() == 0 && disabled.getPrunedCandidates() == 0,
+                "Beam rotations: HH joaktiv ruan te gjashte drejtimet e nivelit te dyte");
+        check(enabled.getBestProtein().isComplete() && enabled.getBestProtein().calculateEnergy() == 0
+                        && sameCoordinates(enabled.getBestProtein(), disabled.getBestProtein(), 2)
+                        && enabled.getBestProtein().getPosition(1).isSamePosition(new Position(1, 0, 0)),
+                "Beam rotations: HH ruan drejtimin e pare +X dhe energjine 0");
+
+        BeamSearchResult narrowEnabled = BeamSearch.searchWithStats("HH", 1, true);
+        BeamSearchResult narrowDisabled = BeamSearch.searchWithStats("HH", 1, false);
+        check(narrowEnabled.getRotatedDuplicates() == 5 && narrowEnabled.getPrunedCandidates() == 0
+                        && narrowDisabled.getRotatedDuplicates() == 0 && narrowDisabled.getPrunedCandidates() == 5,
+                "Beam rotations: kopjet hiqen perpara gjeresise dhe numerohen veqmas");
+
+        BeamSearchResult spatialForms = BeamSearch.searchWithStats("PPPP", 30, true);
+        check(spatialForms.getCompletedLevels() == 4 && spatialForms.getExpandedStates() == 5
+                        && spatialForms.getGeneratedCandidates() == 22 && spatialForms.getRetainedCandidates() == 11
+                        && spatialForms.getRotatedDuplicates() == 11 && spatialForms.getPrunedCandidates() == 0
+                        && spatialForms.getBestProtein().calculateEnergy() == 0,
+                "Beam rotations: zgjatjet e te gjithe prinderve bashkohen dhe perfshijne te 7 format me kater pika");
+        BeamSearchResult folded = BeamSearch.searchWithStats("HHHH", 30, true);
+        check(folded.getBestProtein().isComplete() && folded.getBestProtein().isValid()
+                        && folded.getBestProtein().calculateEnergy() == -1,
+                "Beam rotations: perzgjedhja sipas energjise vazhdon te gjeje katrorin HHHH");
+
+        for (int width : new int[]{1, 30}) {
+            BeamSearchResult oldApi = BeamSearch.searchWithStats("HPPHH", width);
+            BeamSearchResult off = BeamSearch.searchWithStats("HPPHH", width, false);
+            check(sameCoordinates(oldApi.getBestProtein(), off.getBestProtein(), 5)
+                            && oldApi.getBestProtein().calculateEnergy() == off.getBestProtein().calculateEnergy()
+                            && oldApi.getExpandedStates() == off.getExpandedStates()
+                            && oldApi.getGeneratedCandidates() == off.getGeneratedCandidates()
+                            && oldApi.getRetainedCandidates() == off.getRetainedCandidates()
+                            && oldApi.getPrunedCandidates() == off.getPrunedCandidates()
+                            && oldApi.getCompletedLevels() == off.getCompletedLevels()
+                            && off.getRotatedDuplicates() == 0 && off.getStopReason() == oldApi.getStopReason(),
+                    "Beam rotations: opsioni i fikur ruan API-ne e vjeter me width " + width);
+            BeamSearchResult on = BeamSearch.searchWithStats("HPPHH", width, true);
+            check(on.getBestProtein().isComplete() && on.getBestProtein().isValid()
+                            && on.getGeneratedCandidates() == on.getRetainedCandidates()
+                            + on.getRotatedDuplicates() + on.getPrunedCandidates(),
+                    "Beam rotations: invarianti i tre numeruesve ruhet me width " + width);
+        }
+
+        ControlledNanoClock beforeFirst = new ControlledNanoClock(0, 1_000_000);
+        BeamSearchResult immediate = BeamSearch.searchWithStats("HHH", 30, 1, true, beforeFirst);
+        check(immediate.getStopReason() == StopReason.TIME_LIMIT && immediate.getBestProtein() == null
+                        && immediate.getCompletedLevels() == 0 && immediate.getGeneratedCandidates() == 0
+                        && immediate.getRotatedDuplicates() == 0,
+                "Beam rotations: skadimi para nivelit te pare ruan numeruesit zero");
+        ControlledNanoClock afterTwo = new ControlledNanoClock(0, 0, 500_000, 1_000_000);
+        BeamSearchResult timed = BeamSearch.searchWithStats("HHH", 30, 1, true, afterTwo);
+        check(timed.getStopReason() == StopReason.TIME_LIMIT && timed.getBestProtein() == null
+                        && timed.getCompletedLevels() == 2 && timed.getGeneratedCandidates() == 7
+                        && timed.getRetainedCandidates() == 2 && timed.getRotatedDuplicates() == 5
+                        && timed.getPrunedCandidates() == 0 && afterTwo.index == 4,
+                "Beam rotations: kufiri kohor perfundon nivelin bashke me heqjen e kopjeve pa kthyer rezultat te pjesshem");
+        ControlledNanoClock finalLevel = new ControlledNanoClock(0, 0, 0, 1_000_000);
+        BeamSearchResult complete = BeamSearch.searchWithStats("HH", 30, 1, true, finalLevel);
+        check(complete.getStopReason() == StopReason.COMPLETED && complete.getBestProtein().isComplete()
+                        && complete.getRotatedDuplicates() == 5 && finalLevel.index == 3,
+                "Beam rotations: niveli i fundit i perfunduar raportohet si sukses");
+        ControlledNanoClock unusedClock = new ControlledNanoClock();
+        BeamSearchResult unlimited = BeamSearch.searchWithStats("HHHH", 30, 0, true, unusedClock);
+        check(unusedClock.index == 0 && sameCoordinates(unlimited.getBestProtein(), folded.getBestProtein(), 4)
+                        && sameCoordinates(BeamSearch.search("HHHH", 30, true), folded.getBestProtein(), 4)
+                        && sameCoordinates(BeamSearch.search("HHHH", 30, 0, true), folded.getBestProtein(), 4),
+                "Beam rotations: variantet publike dhe burimi i kohes ruajne sjelljen pa kufi");
     }
 
     private static class ControlledNanoClock implements LongSupplier {

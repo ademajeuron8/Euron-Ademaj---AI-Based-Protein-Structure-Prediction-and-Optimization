@@ -3,6 +3,7 @@ public class BeamSearchResult {
     private final long expandedStates;
     private final long generatedCandidates;
     private final long retainedCandidates;
+    private final long rotatedDuplicates;
     private final long prunedCandidates;
     private final int completedLevels;
     private final StopReason stopReason;
@@ -16,10 +17,18 @@ public class BeamSearchResult {
     public BeamSearchResult(Protein bestProtein, long expandedStates, long generatedCandidates,
                             long retainedCandidates, long prunedCandidates, int completedLevels,
                             StopReason stopReason) {
+        this(bestProtein, expandedStates, generatedCandidates, retainedCandidates, 0,
+                prunedCandidates, completedLevels, stopReason);
+    }
+
+    public BeamSearchResult(Protein bestProtein, long expandedStates, long generatedCandidates,
+                            long retainedCandidates, long rotatedDuplicates, long prunedCandidates,
+                            int completedLevels, StopReason stopReason) {
         this.bestProtein = bestProtein == null ? null : bestProtein.copy();
         this.expandedStates = expandedStates;
         this.generatedCandidates = generatedCandidates;
         this.retainedCandidates = retainedCandidates;
+        this.rotatedDuplicates = rotatedDuplicates;
         this.prunedCandidates = prunedCandidates;
         this.completedLevels = completedLevels;
         this.stopReason = stopReason;
@@ -43,6 +52,10 @@ public class BeamSearchResult {
 
     public long getPrunedCandidates() {
         return prunedCandidates;
+    }
+
+    public long getRotatedDuplicates() {
+        return rotatedDuplicates;
     }
 
     public int getCompletedLevels() {

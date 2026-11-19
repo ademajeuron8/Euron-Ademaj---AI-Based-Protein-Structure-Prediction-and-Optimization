@@ -38,6 +38,7 @@ public class Main {
         long seed;
         int beamWidth;
         long timeLimitMillis;
+        boolean removeRotatedCopies;
         try (Scanner scanner = new Scanner(System.in)) {
             System.out.println("Zgjidh llojin e sekuences:");
             System.out.println("1. Sekuence HP");
@@ -140,12 +141,18 @@ public class Main {
                 return;
             }
             timeLimitMillis = limit;
+            Boolean rotationChoice = readRotationChoice(scanner);
+            if (rotationChoice == null) {
+                return;
+            }
+            removeRotatedCopies = rotationChoice;
         }
 
         System.out.println("Parametrat e perdorur:");
         System.out.println("SA: perpjekje=" + maxIterations + ", temperatura=" + initialTemperature
                 + ", ftohja=" + coolingRate + ", seed=" + seed);
-        System.out.println("Beam Search: gjeresia=" + beamWidth);
+        System.out.println("Beam Search: gjeresia=" + beamWidth
+                + ", heqja e kopjeve te rrotulluara=" + (removeRotatedCopies ? "po" : "jo"));
         System.out.println("Kufiri kohor per secilin algoritëm: "
                 + (timeLimitMillis == 0 ? "pa kufi" : timeLimitMillis + " ms"));
         for (int i = 0; i < hpSequence.length(); i++) {
@@ -174,7 +181,8 @@ public class Main {
         System.out.println("Beam Search");
         System.out.println("Gjeresia: " + beamWidth);
         long beamStart = System.nanoTime();
-        BeamSearchResult beamStats = BeamSearch.searchWithStats(hpSequence, beamWidth, timeLimitMillis);
+        BeamSearchResult beamStats = BeamSearch.searchWithStats(hpSequence, beamWidth, timeLimitMillis,
+                removeRotatedCopies);
         long beamElapsedNanos = System.nanoTime() - beamStart;
         Protein beamResult = beamStats.getBestProtein();
         if (beamResult == null) {
@@ -185,10 +193,28 @@ public class Main {
         System.out.println("Strukturat e zgjeruara: " + beamStats.getExpandedStates());
         System.out.println("Kandidatet e gjeneruar: " + beamStats.getGeneratedCandidates());
         System.out.println("Kandidatet e ruajtur gjithsej gjate niveleve: " + beamStats.getRetainedCandidates());
+        System.out.println("Kopjet e hequra nga rrotullimi: " + beamStats.getRotatedDuplicates());
         System.out.println("Kandidatet e larguar nga kufiri i gjeresise: " + beamStats.getPrunedCandidates());
         System.out.println("Nivelet e perfunduara: " + beamStats.getCompletedLevels());
         System.out.println("Arsyeja e ndalimit: " + beamStats.getStopReason().getDescription());
         System.out.printf(Locale.ROOT, "Koha e ekzekutimit: %.3f ms%n", beamElapsedNanos / 1_000_000.0);
+    }
+
+    private static Boolean readRotationChoice(Scanner scanner) {
+        while (true) {
+            System.out.println("Të hiqen kopjet e rrotulluara në Beam Search? [P/j]");
+            if (!scanner.hasNextLine()) {
+                return null;
+            }
+            String choice = scanner.nextLine().trim();
+            if (choice.isEmpty() || choice.equalsIgnoreCase("p")) {
+                return true;
+            }
+            if (choice.equalsIgnoreCase("j")) {
+                return false;
+            }
+            System.out.println("Zgjedhje e pavlefshme. Shkruaj P ose j.");
+        }
     }
 
     private static Long readTimeLimit(Scanner scanner) {

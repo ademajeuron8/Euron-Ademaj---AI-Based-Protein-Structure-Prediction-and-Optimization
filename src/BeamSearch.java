@@ -1,8 +1,15 @@
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.function.LongSupplier;
 
 public class BeamSearch {
+    private static final int[][] AXIS_PERMUTATIONS = {
+            {0, 1, 2}, {0, 2, 1}, {1, 0, 2},
+            {1, 2, 0}, {2, 0, 1}, {2, 1, 0}
+    };
+    private static final int[] PERMUTATION_SIGNS = {1, -1, -1, 1, 1, -1};
+
     // null do te thote se deget e ruajtura ngecen, jo se eshte provuar
     // mosekzistenca e nje strukture te vlefshme.
     public static Protein search(String hpSequence, int beamWidth) {
@@ -13,16 +20,39 @@ public class BeamSearch {
         return searchWithStats(hpSequence, beamWidth, timeLimitMillis).getBestProtein();
     }
 
+    public static Protein search(String hpSequence, int beamWidth, boolean removeRotatedCopies) {
+        return searchWithStats(hpSequence, beamWidth, 0, removeRotatedCopies).getBestProtein();
+    }
+
+    public static Protein search(String hpSequence, int beamWidth, long timeLimitMillis,
+                                 boolean removeRotatedCopies) {
+        return searchWithStats(hpSequence, beamWidth, timeLimitMillis, removeRotatedCopies).getBestProtein();
+    }
+
     public static BeamSearchResult searchWithStats(String hpSequence, int beamWidth) {
         return searchWithStats(hpSequence, beamWidth, 0);
     }
 
     public static BeamSearchResult searchWithStats(String hpSequence, int beamWidth, long timeLimitMillis) {
-        return searchWithStats(hpSequence, beamWidth, timeLimitMillis, System::nanoTime);
+        return searchWithStats(hpSequence, beamWidth, timeLimitMillis, false);
+    }
+
+    public static BeamSearchResult searchWithStats(String hpSequence, int beamWidth, boolean removeRotatedCopies) {
+        return searchWithStats(hpSequence, beamWidth, 0, removeRotatedCopies);
+    }
+
+    public static BeamSearchResult searchWithStats(String hpSequence, int beamWidth, long timeLimitMillis,
+                                                   boolean removeRotatedCopies) {
+        return searchWithStats(hpSequence, beamWidth, timeLimitMillis, removeRotatedCopies, System::nanoTime);
     }
 
     static BeamSearchResult searchWithStats(String hpSequence, int beamWidth, long timeLimitMillis,
                                             LongSupplier nanoTime) {
+        return searchWithStats(hpSequence, beamWidth, timeLimitMillis, false, nanoTime);
+    }
+
+    static BeamSearchResult searchWithStats(String hpSequence, int beamWidth, long timeLimitMillis,
+                                            boolean removeRotatedCopies, LongSupplier nanoTime) {
         SearchTimeLimit limit = new SearchTimeLimit(timeLimitMillis, nanoTime);
         if (beamWidth <= 0) {
             throw new IllegalArgumentException("Beam width duhet te jete pozitiv.");
@@ -33,13 +63,14 @@ public class BeamSearch {
         long expandedStates = 0;
         long generatedCandidates = 0;
         long retainedCandidates = 0;
+        long rotatedDuplicates = 0;
         long prunedCandidates = 0;
         int completedLevels = 0;
 
         for (int step = 0; step < hpSequence.length(); step++) {
             if (limit.isExpired()) {
                 return new BeamSearchResult(null, expandedStates, generatedCandidates,
-                        retainedCandidates, prunedCandidates, completedLevels, StopReason.TIME_LIMIT);
+                        retainedCandidates, rotatedDuplicates, prunedCandidates, completedLevels, StopReason.TIME_LIMIT);
             }
             ArrayList<Protein> candidates = new ArrayList<>();
             for (Protein protein : beam) {
@@ -49,7 +80,12 @@ public class BeamSearch {
             generatedCandidates += candidates.size();
             if (candidates.isEmpty()) {
                 return new BeamSearchResult(null, expandedStates, generatedCandidates,
-                        retainedCandidates, prunedCandidates, completedLevels, StopReason.NO_CANDIDATES);
+                        retainedCandidates, rotatedDuplicates, prunedCandidates, completedLevels, StopReason.NO_CANDIDATES);
+            }
+            if (removeRotatedCopies) {
+                int beforeRemoval = candidates.size();
+                candidates = removeRotatedDuplicates(candidates, step + 1);
+                rotatedDuplicates += beforeRemoval - candidates.size();
             }
             beam = selectBestCandidates(candidates, beamWidth);
             retainedCandidates += beam.size();
@@ -58,7 +94,54 @@ public class BeamSearch {
         }
 
         return new BeamSearchResult(beam.get(0), expandedStates, generatedCandidates,
-                retainedCandidates, prunedCandidates, completedLevels, StopReason.COMPLETED);
+                retainedCandidates, rotatedDuplicates, prunedCandidates, completedLevels, StopReason.COMPLETED);
+    }
+
+    // Kandidatet vijne nga i njejti nivel dhe kane te njejten sekuence HP.
+    // Lista ruan kandidatin e pare dhe koordinatat e tij; ndryshon vetem celesi i krahasimit.
+    static ArrayList<Protein> removeRotatedDuplicates(List<Protein> candidates, int positionCount) {
+        HashSet<String> seenShapes = new HashSet<>();
+        ArrayList<Protein> unique = new ArrayList<>();
+        for (Protein candidate : candidates) {
+            if (seenShapes.add(rotationKey(candidate, positionCount))) {
+                unique.add(candidate);
+            }
+        }
+        return unique;
+    }
+
+    private static String rotationKey(Protein protein, int positionCount) {
+        long[][] steps = new long[positionCount - 1][3];
+        Position previous = protein.getPosition(0);
+        for (int i = 1; i < positionCount; i++) {
+            Position next = protein.getPosition(i);
+            steps[i - 1][0] = (long) next.x - previous.x;
+            steps[i - 1][1] = (long) next.y - previous.y;
+            steps[i - 1][2] = (long) next.z - previous.z;
+            previous = next;
+        }
+
+        String smallest = null;
+        for (int permutation = 0; permutation < AXIS_PERMUTATIONS.length; permutation++) {
+            int[] axes = AXIS_PERMUTATIONS[permutation];
+            for (int signX = -1; signX <= 1; signX += 2) {
+                for (int signY = -1; signY <= 1; signY += 2) {
+                    // Shenja e trete siguron determinant +1: 6 * 4 rrotullime, pa pasqyrime.
+                    int signZ = PERMUTATION_SIGNS[permutation] * signX * signY;
+                    StringBuilder key = new StringBuilder();
+                    for (long[] step : steps) {
+                        key.append(signX * step[axes[0]]).append(',')
+                                .append(signY * step[axes[1]]).append(',')
+                                .append(signZ * step[axes[2]]).append(';');
+                    }
+                    String rotated = key.toString();
+                    if (smallest == null || rotated.compareTo(smallest) < 0) {
+                        smallest = rotated;
+                    }
+                }
+            }
+        }
+        return smallest;
     }
 
     // Ne Beam Search krahasohen kandidate me te njejten sekuence HP
