@@ -37,6 +37,10 @@ public class Protein {
         return new Position(position.x, position.y, position.z);
     }
 
+    public String getHpSequence() {
+        return hpSequence;
+    }
+
     public Protein copy() {
         Protein copiedProtein = new Protein(hpSequence);
         for (Position position : positions) {
@@ -297,14 +301,34 @@ public class Protein {
         // Numero vetem kontaktet H-H qe nuk jane lidhje te drejtperdrejta.
         for (int i = 0; i < positions.size(); i++) {
             for (int j = i + 2; j < positions.size(); j++) {
-                if (hpSequence.charAt(i) == 'H'
-                        && hpSequence.charAt(j) == 'H'
-                        && positions.get(i).isNeighbor(positions.get(j))) {
+                if (isHhContact(i, j)) {
                     contacts++;
                 }
             }
         }
 
         return -((long) contactWeight) * contacts;
+    }
+
+    // Kthe indekset e kontakteve, pa ekspozuar listen e brendshme te pozicioneve.
+    public ArrayList<int[]> getHhContacts() {
+        if (!isValid()) {
+            throw new IllegalStateException("Kontaktet kerkojne nje strukture te vlefshme.");
+        }
+        ArrayList<int[]> contacts = new ArrayList<>();
+        for (int i = 0; i < positions.size(); i++) {
+            for (int j = i + 2; j < positions.size(); j++) {
+                if (isHhContact(i, j)) {
+                    contacts.add(new int[]{i, j});
+                }
+            }
+        }
+        return contacts;
+    }
+
+    private boolean isHhContact(int first, int second) {
+        return second > first + 1
+                && hpSequence.charAt(first) == 'H' && hpSequence.charAt(second) == 'H'
+                && positions.get(first).isNeighbor(positions.get(second));
     }
 }

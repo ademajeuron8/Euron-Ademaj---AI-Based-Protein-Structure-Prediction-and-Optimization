@@ -1,7 +1,12 @@
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Random;
 import java.util.function.LongSupplier;
+import java.util.stream.Stream;
 
 public class ProteinTests {
     public static void main(String[] args) {
@@ -98,6 +103,7 @@ public class ProteinTests {
         testWeightedEnergy();
         testWeightedAnnealing();
         testWeightedBeamSearch();
+        testStructureExport();
     }
 
     private static void demonstrateCopiesAndMoves() {
@@ -1631,6 +1637,129 @@ public class ProteinTests {
                         && timed.getRetainedCandidates() == 2 && timed.getRotatedDuplicates() == 5
                         && timed.getPrunedCandidates() == 0 && afterTwo.index == 4,
                 "Weighted Beam: pesha ruan kufirin kohor dhe numerimin e kopjeve te rrotulluara");
+    }
+
+    private static void testStructureExport() {
+        Path temporary;
+        try {
+            temporary = Files.createTempDirectory("protein-export-tests-");
+        } catch (IOException e) {
+            throw new AssertionError("Nuk u krijua dosja e perkohshme e testeve.", e);
+        }
+        try {
+            Protein square = createSquare("HHHH");
+            Protein snapshot = square.copy();
+            Path html = StructureExporter.export(temporary, square, square, 2, StopReason.COMPLETED);
+            List<String> expected = List.of("index,type,x,y,z", "0,H,0,0,0", "1,H,1,0,0",
+                    "2,H,1,1,0", "3,H,0,1,0");
+            check(Files.readAllLines(html.resolveSibling("sa.csv")).equals(expected),
+                    "Export: CSV e SA ka kolonat e sakta dhe 4 rreshta koordinatash origjinale");
+            check(Files.readAllLines(html.resolveSibling("beam.csv")).equals(expected),
+                    "Export: CSV e Beam ruan te njejtin rend te indekseve nga zero");
+            String data = exportedData(html);
+            check(data.contains("\"sequence\":\"HHHH\"") && data.contains("\"contactWeight\":2")
+                            && data.contains("\"bonds\":[[0,1],[1,2],[2,3]]")
+                            && data.contains("\"contacts\":[[0,3]]")
+                            && data.indexOf("\"energy\":\"-2\"") != data.lastIndexOf("\"energy\":\"-2\"")
+                            && data.contains("\"name\":\"Simulated Annealing\"") && data.contains("\"name\":\"Beam Search\""),
+                    "Export: katrori ne HTML ka 3 lidhje, vetem kontaktin 0-3 dhe energji -2 per te dy rezultatet");
+            String page = Files.readString(html);
+            check(!page.contains("http:") && !page.contains("https:") && !page.contains("src=")
+                            && !page.contains("fetch(") && page.contains("id=\"result\"")
+                            && page.contains("id=\"reset\"") && page.contains("id=\"structure\""),
+                    "Export: HTML permban te dhenat dhe kontrollet pa burime te jashtme");
+            check(sameCoordinates(square, snapshot, 4) && square.calculateEnergy(2) == -2,
+                    "Export: ruajtja nuk ndryshon proteinen ose energjine");
+            Path again = StructureExporter.export(temporary, square, square, 2, StopReason.COMPLETED);
+            check(!again.getParent().equals(html.getParent()) && Files.readString(html).equals(page)
+                            && Files.readAllLines(html.resolveSibling("sa.csv")).equals(expected),
+                    "Export: ruajtjet e perseritura krijojne dosje te reja pa mbishkruar skedaret");
+
+            Protein mixed = createProtein("HPPH", new Position[]{new Position(10, -2, 4), new Position(11, -2, 4),
+                    new Position(11, -1, 4), new Position(10, -1, 4)});
+            Path mixedHtml = StructureExporter.export(temporary, mixed, null, 2, StopReason.TIME_LIMIT);
+            check(Files.readAllLines(mixedHtml.resolveSibling("sa.csv")).equals(List.of("index,type,x,y,z",
+                            "0,H,10,-2,4", "1,P,11,-2,4", "2,P,11,-1,4", "3,H,10,-1,4")),
+                    "Export: CSV ruan tipet H/P dhe koordinatat larg origjines pa normalizim");
+            check(!Files.exists(mixedHtml.resolveSibling("beam.csv"))
+                            && exportedData(mixedHtml).contains("Kufiri kohor")
+                            && !exportedData(mixedHtml).contains("\"name\":\"Beam Search\""),
+                    "Export: kur Beam mungon, ruhet vetem SA dhe shenohet arsyeja e ndalimit");
+
+            ArrayList<int[]> contacts = square.getHhContacts();
+            contacts.get(0)[0] = 99;
+            contacts.clear();
+            check(square.getHhContacts().size() == 1 && square.getHhContacts().get(0)[0] == 0
+                            && square.getHhContacts().get(0)[1] == 3 && square.calculateEnergy(2) == -2,
+                    "Export: kontaktet vijne nga modeli dhe lista e kthyer nuk ndryshon gjendjen");
+            Protein partial = new Protein("HHHH");
+            partial.addPosition(new Position(0, 0, 0));
+            Protein invalid = createProtein("HHHH", new Position[]{new Position(0, 0, 0), new Position(1, 0, 0),
+                    new Position(0, 0, 0), new Position(0, 1, 0)});
+            for (Protein unavailable : new Protein[]{partial, invalid}) {
+                Path skipped = StructureExporter.export(temporary, square, unavailable, 2, StopReason.TIME_LIMIT);
+                check(!Files.exists(skipped.resolveSibling("beam.csv"))
+                                && exportedData(skipped).contains("nuk ka strukture te plote"),
+                        "Export: rezultati jo i plote ose i pavlefshem nuk eksportohet si rezultat final");
+            }
+            Protein single = createProtein("H", new Position[]{new Position(0, 0, 0)});
+            Path singleHtml = StructureExporter.export(temporary, single, null, 2, StopReason.TIME_LIMIT);
+            check(exportedData(singleHtml).contains("\"bonds\":[],\"contacts\":[]")
+                            && exportedData(singleHtml).contains("\"energy\":\"0\""),
+                    "Export: nje pozicion i vetem ka zero lidhje, kontakte dhe energji");
+
+            boolean invalidWeight = false;
+            try {
+                StructureExporter.export(temporary.resolve("bad-weight"), square, null, 0, StopReason.TIME_LIMIT);
+            } catch (IllegalArgumentException e) {
+                invalidWeight = true;
+            }
+            check(invalidWeight && !Files.exists(temporary.resolve("bad-weight")),
+                    "Export: pesha e pavlefshme refuzohet para krijimit te skedareve");
+            boolean noResult = false;
+            try {
+                StructureExporter.export(temporary.resolve("no-result"), partial, null, 2, StopReason.TIME_LIMIT);
+            } catch (IllegalArgumentException e) {
+                noResult = true;
+            }
+            check(noResult && !Files.exists(temporary.resolve("no-result")),
+                    "Export: pa asnje rezultat te plote nuk krijohet dosje");
+            boolean mismatch = false;
+            try {
+                StructureExporter.export(temporary.resolve("mismatch"), square, mixed, 2, StopReason.COMPLETED);
+            } catch (IllegalArgumentException e) {
+                mismatch = true;
+            }
+            check(mismatch && !Files.exists(temporary.resolve("mismatch")),
+                    "Export: sekuencat e rezultateve duhet te perputhen");
+            Path occupied = temporary.resolve("occupied");
+            Files.writeString(occupied, "mos ndrysho");
+            boolean ioFailure = false;
+            try {
+                StructureExporter.export(occupied, square, null, 2, StopReason.TIME_LIMIT);
+            } catch (IOException e) {
+                ioFailure = true;
+            }
+            check(ioFailure && Files.readString(occupied).equals("mos ndrysho"),
+                    "Export: gabimi i shkrimit raportohet pa mbishkruar skedarin ekzistues");
+        } catch (IOException e) {
+            throw new AssertionError("Deshtim gjate testit te eksportit.", e);
+        } finally {
+            try (Stream<Path> files = Files.walk(temporary)) {
+                for (Path file : files.sorted(Comparator.reverseOrder()).toList()) {
+                    Files.delete(file);
+                }
+            } catch (IOException e) {
+                throw new AssertionError("Nuk u pastrua dosja e perkohshme e testit.", e);
+            }
+        }
+    }
+
+    private static String exportedData(Path html) throws IOException {
+        String page = Files.readString(html);
+        String marker = "<script id=\"protein-data\" type=\"application/json\">";
+        int start = page.indexOf(marker) + marker.length();
+        return page.substring(start, page.indexOf("</script>", start));
     }
 
     private static class ControlledNanoClock implements LongSupplier {

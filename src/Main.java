@@ -1,3 +1,5 @@
+import java.io.IOException;
+import java.nio.file.Path;
 import java.util.Locale;
 import java.util.Random;
 import java.util.Scanner;
@@ -152,59 +154,85 @@ public class Main {
                 return;
             }
             contactWeight = weight;
-        }
 
-        System.out.println("Parametrat e perdorur:");
-        System.out.println("SA: perpjekje=" + maxIterations + ", temperatura=" + initialTemperature
-                + ", ftohja=" + coolingRate + ", seed=" + seed);
-        System.out.println("Beam Search: gjeresia=" + beamWidth
-                + ", heqja e kopjeve te rrotulluara=" + (removeRotatedCopies ? "po" : "jo"));
-        System.out.println("Kufiri kohor per secilin algoritëm: "
-                + (timeLimitMillis == 0 ? "pa kufi" : timeLimitMillis + " ms"));
-        System.out.println("Pesha e kontaktit H-H: " + contactWeight);
-        for (int i = 0; i < hpSequence.length(); i++) {
-            protein.addPosition(new Position(i, 0, 0));
-        }
+            System.out.println("Parametrat e perdorur:");
+            System.out.println("SA: perpjekje=" + maxIterations + ", temperatura=" + initialTemperature
+                    + ", ftohja=" + coolingRate + ", seed=" + seed);
+            System.out.println("Beam Search: gjeresia=" + beamWidth
+                    + ", heqja e kopjeve te rrotulluara=" + (removeRotatedCopies ? "po" : "jo"));
+            System.out.println("Kufiri kohor per secilin algoritëm: "
+                    + (timeLimitMillis == 0 ? "pa kufi" : timeLimitMillis + " ms"));
+            System.out.println("Pesha e kontaktit H-H: " + contactWeight);
+            for (int i = 0; i < hpSequence.length(); i++) {
+                protein.addPosition(new Position(i, 0, 0));
+            }
 
-        System.out.println("Simulated Annealing");
-        System.out.println("Energjia fillestare: " + protein.calculateEnergy(contactWeight));
-        Random random = new Random(seed);
-        long saStart = System.nanoTime();
-        AnnealingResult saStats = SimulatedAnnealing.optimizeWithStats(protein, maxIterations, initialTemperature,
-                coolingRate, random, timeLimitMillis, contactWeight);
-        long saElapsedNanos = System.nanoTime() - saStart;
-        Protein best = saStats.getBestProtein();
-        showResult(best, hpSequence, contactWeight);
-        System.out.println("Perpjekjet: " + saStats.getAttempts());
-        System.out.println("Kandidatet e vlefshem: " + saStats.getValidCandidates());
-        System.out.println("Levizjet e pranuara: " + saStats.getAcceptedMoves());
-        System.out.println("Perpjekjet pa kandidat: " + (saStats.getAttempts() - saStats.getValidCandidates()));
-        System.out.println("Kandidatet e refuzuar nga rregulli i pranimit: "
-                + (saStats.getValidCandidates() - saStats.getAcceptedMoves()));
-        System.out.println("Arsyeja e ndalimit: " + saStats.getStopReason().getDescription());
-        System.out.printf(Locale.ROOT, "Koha e ekzekutimit: %.3f ms%n", saElapsedNanos / 1_000_000.0);
+            System.out.println("Simulated Annealing");
+            System.out.println("Energjia fillestare: " + protein.calculateEnergy(contactWeight));
+            Random random = new Random(seed);
+            long saStart = System.nanoTime();
+            AnnealingResult saStats = SimulatedAnnealing.optimizeWithStats(protein, maxIterations, initialTemperature,
+                    coolingRate, random, timeLimitMillis, contactWeight);
+            long saElapsedNanos = System.nanoTime() - saStart;
+            Protein best = saStats.getBestProtein();
+            showResult(best, hpSequence, contactWeight);
+            System.out.println("Perpjekjet: " + saStats.getAttempts());
+            System.out.println("Kandidatet e vlefshem: " + saStats.getValidCandidates());
+            System.out.println("Levizjet e pranuara: " + saStats.getAcceptedMoves());
+            System.out.println("Perpjekjet pa kandidat: " + (saStats.getAttempts() - saStats.getValidCandidates()));
+            System.out.println("Kandidatet e refuzuar nga rregulli i pranimit: "
+                    + (saStats.getValidCandidates() - saStats.getAcceptedMoves()));
+            System.out.println("Arsyeja e ndalimit: " + saStats.getStopReason().getDescription());
+            System.out.printf(Locale.ROOT, "Koha e ekzekutimit: %.3f ms%n", saElapsedNanos / 1_000_000.0);
 
-        System.out.println();
-        System.out.println("Beam Search");
-        System.out.println("Gjeresia: " + beamWidth);
-        long beamStart = System.nanoTime();
-        BeamSearchResult beamStats = BeamSearch.searchWithStats(hpSequence, beamWidth, timeLimitMillis,
-                removeRotatedCopies, contactWeight);
-        long beamElapsedNanos = System.nanoTime() - beamStart;
-        Protein beamResult = beamStats.getBestProtein();
-        if (beamResult == null) {
-            System.out.println("Kerkimi nuk arriti te ndertoje nje strukture te plote.");
-        } else {
-            showResult(beamResult, hpSequence, contactWeight);
+            System.out.println();
+            System.out.println("Beam Search");
+            System.out.println("Gjeresia: " + beamWidth);
+            long beamStart = System.nanoTime();
+            BeamSearchResult beamStats = BeamSearch.searchWithStats(hpSequence, beamWidth, timeLimitMillis,
+                    removeRotatedCopies, contactWeight);
+            long beamElapsedNanos = System.nanoTime() - beamStart;
+            Protein beamResult = beamStats.getBestProtein();
+            if (beamResult == null) {
+                System.out.println("Kerkimi nuk arriti te ndertoje nje strukture te plote.");
+            } else {
+                showResult(beamResult, hpSequence, contactWeight);
+            }
+            System.out.println("Strukturat e zgjeruara: " + beamStats.getExpandedStates());
+            System.out.println("Kandidatet e gjeneruar: " + beamStats.getGeneratedCandidates());
+            System.out.println("Kandidatet e ruajtur gjithsej gjate niveleve: " + beamStats.getRetainedCandidates());
+            System.out.println("Kopjet e hequra nga rrotullimi: " + beamStats.getRotatedDuplicates());
+            System.out.println("Kandidatet e larguar nga kufiri i gjeresise: " + beamStats.getPrunedCandidates());
+            System.out.println("Nivelet e perfunduara: " + beamStats.getCompletedLevels());
+            System.out.println("Arsyeja e ndalimit: " + beamStats.getStopReason().getDescription());
+            System.out.printf(Locale.ROOT, "Koha e ekzekutimit: %.3f ms%n", beamElapsedNanos / 1_000_000.0);
+            if (readExportChoice(scanner)) {
+                try {
+                    Path html = StructureExporter.export(Path.of("exports"), best, beamResult,
+                            contactWeight, beamStats.getStopReason());
+                    System.out.println("Pamja 3D u ruajt te: " + html);
+                } catch (IOException e) {
+                    System.out.println("Eksporti nuk u ruajt: " + e.getMessage());
+                }
+            }
         }
-        System.out.println("Strukturat e zgjeruara: " + beamStats.getExpandedStates());
-        System.out.println("Kandidatet e gjeneruar: " + beamStats.getGeneratedCandidates());
-        System.out.println("Kandidatet e ruajtur gjithsej gjate niveleve: " + beamStats.getRetainedCandidates());
-        System.out.println("Kopjet e hequra nga rrotullimi: " + beamStats.getRotatedDuplicates());
-        System.out.println("Kandidatet e larguar nga kufiri i gjeresise: " + beamStats.getPrunedCandidates());
-        System.out.println("Nivelet e perfunduara: " + beamStats.getCompletedLevels());
-        System.out.println("Arsyeja e ndalimit: " + beamStats.getStopReason().getDescription());
-        System.out.printf(Locale.ROOT, "Koha e ekzekutimit: %.3f ms%n", beamElapsedNanos / 1_000_000.0);
+    }
+
+    private static boolean readExportChoice(Scanner scanner) {
+        while (true) {
+            System.out.println("T’i ruaj koordinatat dhe pamjen 3D? [p/J]");
+            if (!scanner.hasNextLine()) {
+                return false;
+            }
+            String choice = scanner.nextLine().trim();
+            if (choice.isEmpty() || choice.equalsIgnoreCase("j")) {
+                return false;
+            }
+            if (choice.equalsIgnoreCase("p")) {
+                return true;
+            }
+            System.out.println("Zgjedhje e pavlefshme. Shkruaj p ose j.");
+        }
     }
 
     private static Integer readContactWeight(Scanner scanner) {
