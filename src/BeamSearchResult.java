@@ -7,6 +7,7 @@ public class BeamSearchResult {
     private final long prunedCandidates;
     private final int completedLevels;
     private final StopReason stopReason;
+    private final int maxCandidatesBeforeSelection;
 
     public BeamSearchResult(Protein bestProtein, long expandedStates, long generatedCandidates,
                             long retainedCandidates, long prunedCandidates, int completedLevels) {
@@ -24,6 +25,13 @@ public class BeamSearchResult {
     public BeamSearchResult(Protein bestProtein, long expandedStates, long generatedCandidates,
                             long retainedCandidates, long rotatedDuplicates, long prunedCandidates,
                             int completedLevels, StopReason stopReason) {
+        this(bestProtein, expandedStates, generatedCandidates, retainedCandidates, rotatedDuplicates,
+                prunedCandidates, completedLevels, stopReason, 0);
+    }
+
+    public BeamSearchResult(Protein bestProtein, long expandedStates, long generatedCandidates,
+                            long retainedCandidates, long rotatedDuplicates, long prunedCandidates,
+                            int completedLevels, StopReason stopReason, int maxCandidatesBeforeSelection) {
         this.bestProtein = bestProtein == null ? null : bestProtein.copy();
         this.expandedStates = expandedStates;
         this.generatedCandidates = generatedCandidates;
@@ -32,6 +40,7 @@ public class BeamSearchResult {
         this.prunedCandidates = prunedCandidates;
         this.completedLevels = completedLevels;
         this.stopReason = stopReason;
+        this.maxCandidatesBeforeSelection = maxCandidatesBeforeSelection;
     }
 
     public Protein getBestProtein() {
@@ -64,5 +73,9 @@ public class BeamSearchResult {
 
     public StopReason getStopReason() {
         return stopReason;
+    }
+
+    public int getMaxCandidatesBeforeSelection() {
+        return maxCandidatesBeforeSelection;
     }
 }

@@ -84,11 +84,13 @@ public class BeamSearch {
         long rotatedDuplicates = 0;
         long prunedCandidates = 0;
         int completedLevels = 0;
+        int maxCandidatesBeforeSelection = 0;
 
         for (int step = 0; step < hpSequence.length(); step++) {
             if (limit.isExpired()) {
                 return new BeamSearchResult(null, expandedStates, generatedCandidates,
-                        retainedCandidates, rotatedDuplicates, prunedCandidates, completedLevels, StopReason.TIME_LIMIT);
+                        retainedCandidates, rotatedDuplicates, prunedCandidates, completedLevels,
+                        StopReason.TIME_LIMIT, maxCandidatesBeforeSelection);
             }
             ArrayList<Protein> candidates = new ArrayList<>();
             for (Protein protein : beam) {
@@ -96,9 +98,12 @@ public class BeamSearch {
                 candidates.addAll(protein.createExtensions());
             }
             generatedCandidates += candidates.size();
+            // Mat listen e perbashket para heqjes se kopjeve dhe para kufirit te gjeresise.
+            maxCandidatesBeforeSelection = Math.max(maxCandidatesBeforeSelection, candidates.size());
             if (candidates.isEmpty()) {
                 return new BeamSearchResult(null, expandedStates, generatedCandidates,
-                        retainedCandidates, rotatedDuplicates, prunedCandidates, completedLevels, StopReason.NO_CANDIDATES);
+                        retainedCandidates, rotatedDuplicates, prunedCandidates, completedLevels,
+                        StopReason.NO_CANDIDATES, maxCandidatesBeforeSelection);
             }
             if (removeRotatedCopies) {
                 int beforeRemoval = candidates.size();
@@ -112,7 +117,8 @@ public class BeamSearch {
         }
 
         return new BeamSearchResult(beam.get(0), expandedStates, generatedCandidates,
-                retainedCandidates, rotatedDuplicates, prunedCandidates, completedLevels, StopReason.COMPLETED);
+                retainedCandidates, rotatedDuplicates, prunedCandidates, completedLevels,
+                StopReason.COMPLETED, maxCandidatesBeforeSelection);
     }
 
     // Kandidatet vijne nga i njejti nivel dhe kane te njejten sekuence HP.

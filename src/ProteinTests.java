@@ -104,6 +104,8 @@ public class ProteinTests {
         testWeightedAnnealing();
         testWeightedBeamSearch();
         testStructureExport();
+        testExperimentPlan();
+        testExperimentResults();
     }
 
     private static void demonstrateCopiesAndMoves() {
@@ -1760,6 +1762,164 @@ public class ProteinTests {
         String marker = "<script id=\"protein-data\" type=\"application/json\">";
         int start = page.indexOf(marker) + marker.length();
         return page.substring(start, page.indexOf("</script>", start));
+    }
+
+    private static void testExperimentPlan() {
+        List<ExperimentRunner.Trial> plan = ExperimentRunner.createPlan();
+        check(plan.size() == 46 && plan.stream().noneMatch(t -> t.group().equals("warmup")),
+                "Experiments: plani ka 46 prova dhe nuk perfshin ngrohjen");
+        List<String> sequences = plan.stream().filter(t -> t.group().equals("baseline"))
+                .map(ExperimentRunner.Trial::sequence).distinct().toList();
+        check(sequences.size() == 3 && sequences.get(0).length() == 4
+                        && sequences.get(1).length() == 12 && sequences.get(2).length() == 24,
+                "Experiments: ruhen sekuenca fikse me gjatesi 4, 12 dhe 24");
+        for (String sequence : sequences) {
+            List<ExperimentRunner.Trial> baseline = plan.stream().filter(t -> t.group().equals("baseline")
+                    && t.sequence().equals(sequence)).toList();
+            List<ExperimentRunner.Trial> timed = plan.stream().filter(t -> t.group().equals("time_limited")
+                    && t.sequence().equals(sequence)).toList();
+            List<Long> seeds = baseline.stream().filter(t -> t.algorithm().equals("SA"))
+                    .map(ExperimentRunner.Trial::seed).toList();
+            check(baseline.size() == 7 && timed.size() == 7 && seeds.equals(List.of(2025L, 2026L, 2027L, 2028L, 2029L))
+                            && timed.stream().filter(t -> t.algorithm().equals("SA")).map(ExperimentRunner.Trial::seed).toList().equals(seeds)
+                            && baseline.stream().allMatch(t -> t.timeLimitMillis() == 0)
+                            && timed.stream().allMatch(t -> t.timeLimitMillis() == 10)
+                            && baseline.stream().filter(t -> t.algorithm().equals("Beam")).map(ExperimentRunner.Trial::beamWidth).toList().equals(List.of(10, 30)),
+                    "Experiments: pese seed-e dhe dy gjeresi me kufi te njejte per n=" + sequence.length());
+        }
+        ExperimentRunner.Trial rotation = plan.stream().filter(t -> t.group().equals("rotation")).findFirst().orElseThrow();
+        check(!rotation.removeRotatedCopies() && rotation.timeLimitMillis() == 0
+                        && plan.stream().anyMatch(t -> t.group().equals("baseline") && t.algorithm().equals("Beam")
+                        && t.sequence().equals(rotation.sequence()) && t.beamWidth() == rotation.beamWidth() && t.removeRotatedCopies()),
+                "Experiments: krahasimi i rrotullimeve ka te njejten sekuence dhe gjeresi");
+        List<ExperimentRunner.Trial> progress = plan.stream().filter(t -> t.group().equals("progress")).toList();
+        check(progress.stream().map(ExperimentRunner.Trial::iterations).toList().equals(List.of(100, 500, 1000))
+                        && progress.stream().map(ExperimentRunner.Trial::seed).distinct().count() == 1
+                        && progress.stream().map(ExperimentRunner.Trial::sequence).distinct().count() == 1
+                        && progress.stream().allMatch(t -> t.timeLimitMillis() == 0),
+                "Experiments: progresi perdor te njejtin seed dhe sekuence ne 100, 500 dhe 1000 hapa");
+        Protein initial = ExperimentRunner.initialProtein(sequences.get(2));
+        boolean straight = initial.isComplete();
+        for (int i = 0; i < sequences.get(2).length(); i++) {
+            straight &= initial.getPosition(i).isSamePosition(new Position(i, 0, 0));
+        }
+        check(straight && initial.calculateEnergy() == 0,
+                "Experiments: cdo prove SA nis nga e njejta vije me energji zero");
+    }
+
+    private static void testExperimentResults() {
+        Path temporary;
+        try {
+            temporary = Files.createTempDirectory("protein-experiment-tests-");
+        } catch (IOException e) {
+            throw new AssertionError("Nuk u krijua dosja e perkohshme e eksperimenteve.", e);
+        }
+        try {
+            BeamSearchResult hh = BeamSearch.searchWithStats("HH", 30, true);
+            BeamSearchResult hhh = BeamSearch.searchWithStats("HHH", 2, false);
+            check(hh.getMaxCandidatesBeforeSelection() == 6 && hh.getRotatedDuplicates() == 5
+                            && hhh.getMaxCandidatesBeforeSelection() == 10,
+                    "Experiments: maksimumi numeron kandidatet e te gjithe prinderve para heqjes se kopjeve");
+            ExperimentRunner.Trial saTrial = new ExperimentRunner.Trial("baseline", "short", "HHHH", "SA", 1000, 2025L, 0, false, 0);
+            ExperimentRunner.Trial beamTrial = new ExperimentRunner.Trial("baseline", "short", "HHHH", "Beam", 0, null, 30, true, 0);
+            ExperimentRow realSa = ExperimentRunner.runTrial(saTrial);
+            ExperimentRow realBeam = ExperimentRunner.runTrial(beamTrial);
+            check(realSa.get("energy").equals("-1") && realBeam.get("energy").equals("-1")
+                            && realSa.get("hh_contacts").equals("1") && realBeam.get("hh_contacts").equals("1")
+                            && realSa.get("status").equals("COMPLETE") && realBeam.get("status").equals("COMPLETE"),
+                    "Experiments: kerkimet reale per HHHH me peshe 1 japin nje kontakt dhe energji -1");
+            check(realSa.get("seed").equals("2025") && realSa.get("attempts").equals("1000")
+                            && realSa.get("max_candidates_before_selection").isEmpty()
+                            && realBeam.get("seed").isEmpty() && realBeam.get("attempts").isEmpty()
+                            && realBeam.get("max_candidates_before_selection").equals("10"),
+                    "Experiments: ruhen parametrat dhe numeruesit; fushat e pazbatueshme jane bosh");
+            BeamSearchResult missing = BeamSearch.searchWithStats("HHHH", 30, 1, true, 1,
+                    new ControlledNanoClock(0, 1_000_000));
+            ExperimentRunner.Trial timedTrial = new ExperimentRunner.Trial("time_limited", "short", "HHHH", "Beam", 0, null, 30, true, 1);
+            ExperimentRow missingRow = ExperimentRow.fromBeam(timedTrial, 1, 2_000_000, missing);
+            check(missingRow.get("energy").isEmpty() && missingRow.get("hh_contacts").isEmpty()
+                            && missingRow.get("status").equals("NO_COMPLETE_STRUCTURE")
+                            && missingRow.get("stop_reason").equals("TIME_LIMIT")
+                            && missing.getMaxCandidatesBeforeSelection() == 0,
+                    "Experiments: mungesa e zgjidhjes ka energji bosh dhe arsye kohore pa varesi nga shpejtesia");
+            BeamSearchResult partial = BeamSearch.searchWithStats("HHHH", 30, 1, true, 1,
+                    new ControlledNanoClock(0, 0, 500_000, 1_000_000));
+            check(partial.getBestProtein() == null && partial.getMaxCandidatesBeforeSelection() == 6
+                            && partial.getCompletedLevels() == 2 && partial.getStopReason() == StopReason.TIME_LIMIT,
+                    "Experiments: maksimumi i kandidateve ruhet edhe kur ndalimi vjen pas disa niveleve");
+
+            ArrayList<ExperimentRow> rows = new ArrayList<>();
+            // Kohe fikse vetem per testimin e CSV-se dhe medianes, jo matje te algoritmit.
+            long[] elapsed = {5_000_000, 1_000_000, 3_000_000, 2_000_000, 4_000_000};
+            for (int i = 0; i < 5; i++) {
+                Protein result = i % 2 == 0 ? createSquare("HHHH") : ExperimentRunner.initialProtein("HHHH");
+                ExperimentRunner.Trial trial = new ExperimentRunner.Trial("baseline", "short", "HHHH", "SA", 1000, 2025L + i, 0, false, 0);
+                rows.add(ExperimentRow.fromAnnealing(trial, 1, 2, 0.995, elapsed[i],
+                        new AnnealingResult(result, 1000, 100, 50, StopReason.ITERATION_LIMIT)));
+            }
+            rows.add(ExperimentRow.fromBeam(beamTrial, 1, 7_000_000, BeamSearch.searchWithStats("HHHH", 30, true)));
+            rows.add(missingRow);
+            long previous = 0;
+            for (int attempts : new int[]{100, 500, 1000}) {
+                ExperimentRunner.Trial trial = new ExperimentRunner.Trial("progress", "short", "HHHH", "SA", attempts, 2025L, 0, false, 0);
+                ExperimentRow row = ExperimentRunner.runTrial(trial);
+                long energy = Long.parseLong(row.get("energy"));
+                check(energy <= previous && row.get("attempts").equals(Integer.toString(attempts)),
+                        "Experiments: best nuk perkeqesohet per te njejtin seed deri ne " + attempts + " perpjekje");
+                previous = energy;
+                rows.add(row);
+            }
+            rows.add(ExperimentRunner.runTrial(new ExperimentRunner.Trial("rotation", "short", "HHHH", "Beam", 0, null, 30, false, 0)));
+            Path csv = temporary.resolve("results.csv");
+            ExperimentRow.writeCsv(csv, rows);
+            String before = Files.readString(csv);
+            List<ExperimentRow> read = ExperimentRow.readCsv(csv);
+            boolean matches = read.size() == rows.size();
+            for (int i = 0; i < rows.size(); i++) {
+                for (String column : ExperimentRow.COLUMNS) {
+                    matches &= rows.get(i).get(column).equals(read.get(i).get(column));
+                }
+            }
+            check(matches && read.get(0).get("elapsed_ms").equals("5.000000")
+                            && read.get(6).get("energy").isEmpty(),
+                    "Experiments: CSV ruan sakte te gjitha fushat, kohen dhe energjine bosh gjate rileximit");
+            check(ExperimentReport.median(List.of(-1.0, 0.0, -1.0, 0.0, -1.0)) == -1
+                            && ExperimentReport.median(List.of(5.0, 1.0, 3.0, 2.0, 4.0)) == 3,
+                    "Experiments: mediana e pese seed-eve llogaritet pas renditjes se vlerave");
+            Path report = temporary.resolve("report.html");
+            ExperimentReport.write(csv, report);
+            String html = Files.readString(report);
+            check(html.contains("data-value=\"-1.0\"") && html.contains("<td>-1</td><td>1</td>")
+                            && html.contains("3.000 ms") && html.contains("<tr><td>SA</td><td>-1</td><td>-1</td>")
+                            && Files.readString(csv).equals(before),
+                    "Experiments: tabela dhe grafiket e raportit perdorin energjine, kontaktet dhe medianen nga CSV");
+            check(html.contains("data-value=\"missing\"") && html.contains("Pa strukturë")
+                            && html.contains("<td>NO_COMPLETE_STRUCTURE</td><td>TIME_LIMIT</td>"),
+                    "Experiments: raporti dallon mungesen e struktures nga energjia zero");
+            check(html.contains("<svg") && !html.contains("http:") && !html.contains("https:")
+                            && !html.contains("src=") && html.contains("max_candidates_before_selection")
+                            && html.contains("jo MB") && html.contains("minimum global"),
+                    "Experiments: raporti eshte offline dhe shpjegon treguesin e memories e kufijte e perfundimeve");
+            Path malformed = temporary.resolve("malformed.csv");
+            Files.writeString(malformed, "gabim\n");
+            boolean rejected = false;
+            try {
+                ExperimentRow.readCsv(malformed);
+            } catch (IOException e) {
+                rejected = true;
+            }
+            check(rejected, "Experiments: CSV me kolona te gabuara nuk interpretohet ne heshtje");
+        } catch (IOException e) {
+            throw new AssertionError("Deshtim gjate testimit te eksperimenteve.", e);
+        } finally {
+            try (Stream<Path> files = Files.walk(temporary)) {
+                for (Path file : files.sorted(Comparator.reverseOrder()).toList()) {
+                    Files.delete(file);
+                }
+            } catch (IOException e) {
+                throw new AssertionError("Nuk u pastrua dosja e perkohshme e eksperimenteve.", e);
+            }
+        }
     }
 
     private static class ControlledNanoClock implements LongSupplier {
