@@ -106,6 +106,7 @@ public class ProteinTests {
         testStructureExport();
         testExperimentPlan();
         testExperimentResults();
+        testProposalMetrics();
     }
 
     private static void demonstrateCopiesAndMoves() {
@@ -1833,10 +1834,26 @@ public class ProteinTests {
                             && realBeam.get("seed").isEmpty() && realBeam.get("attempts").isEmpty()
                             && realBeam.get("max_candidates_before_selection").equals("10"),
                     "Experiments: ruhen parametrat dhe numeruesit; fushat e pazbatueshme jane bosh");
+            for (ExperimentRow row : List.of(realSa, realBeam)) {
+                check(!row.get("heap_used_before_mib").isEmpty() && !row.get("heap_used_after_mib").isEmpty()
+                                && Double.parseDouble(row.get("heap_used_before_mib")) >= 0
+                                && Double.parseDouble(row.get("heap_used_after_mib")) >= 0,
+                        "Metrics: " + row.get("algorithm") + " ruan dy lexime reale te heap-it ne MiB pa prag performance");
+                check(Long.parseLong(row.get("proposals")) == Long.parseLong(row.get("valid_proposals"))
+                                + Long.parseLong(row.get("geometrically_invalid_proposals"))
+                                + Long.parseLong(row.get("out_of_range_proposals"))
+                                + (row.get("algorithm").equals("SA") ? Long.parseLong(row.get("unchanged_proposals"))
+                                + Long.parseLong(row.get("no_move_proposals")) : 0),
+                        "Metrics: " + row.get("algorithm") + " regjistron ndarjen e plote te propozimeve ne CSV");
+            }
             BeamSearchResult missing = BeamSearch.searchWithStats("HHHH", 30, 1, true, 1,
                     new ControlledNanoClock(0, 1_000_000));
             ExperimentRunner.Trial timedTrial = new ExperimentRunner.Trial("time_limited", "short", "HHHH", "Beam", 0, null, 30, true, 1);
             ExperimentRow missingRow = ExperimentRow.fromBeam(timedTrial, 1, 2_000_000, missing);
+            check(missing.getEliminatedCandidatesPercentage() == null
+                            && missingRow.get("generated_candidates_eliminated_percent").equals("N/A")
+                            && realSa.get("generated_candidates_eliminated_percent").isEmpty(),
+                    "Metrics: emëruesi zero jep N/A; refuzimeve SA nuk u caktohet perqindja e Beam");
             check(missingRow.get("energy").isEmpty() && missingRow.get("hh_contacts").isEmpty()
                             && missingRow.get("status").equals("NO_COMPLETE_STRUCTURE")
                             && missingRow.get("stop_reason").equals("TIME_LIMIT")
@@ -1870,6 +1887,18 @@ public class ProteinTests {
                 rows.add(row);
             }
             rows.add(ExperimentRunner.runTrial(new ExperimentRunner.Trial("rotation", "short", "HHHH", "Beam", 0, null, 30, false, 0)));
+            ExperimentRunner.Trial metricTrial = new ExperimentRunner.Trial("metrics", "short", "HHHH", "SA", 1, 2025L, 0, false, 0);
+            AnnealingResult rejectedCandidate = SimulatedAnnealing.optimizeWithStats(createSquare("HHHH"), 1, 2, 0.99,
+                    new ControlledAnnealingRandom(new int[]{0, 2}, 0.7));
+            ExperimentRow metricRow = ExperimentRow.fromAnnealing(metricTrial, 1, 2, 0.99, 0,
+                    rejectedCandidate, 5L * 1_048_576, 3L * 1_048_576);
+            rows.add(metricRow);
+            check(metricRow.get("heap_used_before_mib").equals("5.000000")
+                            && metricRow.get("heap_used_after_mib").equals("3.000000")
+                            && metricRow.get("valid_proposals").equals("1")
+                            && metricRow.get("temperature_rejected_candidates").equals("1")
+                            && metricRow.get("geometrically_invalid_proposals").equals("0"),
+                    "Metrics: CSV dallon refuzimin e vlefshem dhe ruan heap-in edhe kur leximi pas eshte me i ulet");
             Path csv = temporary.resolve("results.csv");
             ExperimentRow.writeCsv(csv, rows);
             String before = Files.readString(csv);
@@ -1900,6 +1929,11 @@ public class ProteinTests {
                             && !html.contains("src=") && html.contains("max_candidates_before_selection")
                             && html.contains("jo MB") && html.contains("minimum global"),
                     "Experiments: raporti eshte offline dhe shpjegon treguesin e memories e kufijte e perfundimeve");
+            check(html.contains("Përqindja e kandidatëve të gjeneruar që u eliminuan")
+                            && html.contains("<td>N/A</td>") && html.contains("Heap JVM para (MiB)")
+                            && html.contains("<td>5.000000</td><td>3.000000</td>") && html.contains("memorien ekskluzive")
+                            && html.contains("heap_used_after_mib"),
+                    "Metrics: raporti shfaq N/A dhe njesite e kufizimet e matjes se perbashket te memories");
             Path malformed = temporary.resolve("malformed.csv");
             Files.writeString(malformed, "gabim\n");
             boolean rejected = false;
@@ -1920,6 +1954,92 @@ public class ProteinTests {
                 throw new AssertionError("Nuk u pastrua dosja e perkohshme e eksperimenteve.", e);
             }
         }
+    }
+
+    private static void testProposalMetrics() {
+        Protein bent = createProtein("HHHH", new Position[]{new Position(0, 0, 0), new Position(1, 0, 0),
+                new Position(1, 1, 0), new Position(1, 2, 0)});
+        Protein snapshot = bent.copy();
+        MoveProposal collision = bent.createRandomNeighborWithStatus(new ControlledAnnealingRandom(new int[]{0, 3}));
+        MoveProposal unchanged = bent.createRandomNeighborWithStatus(new ControlledAnnealingRandom(new int[]{0, 2}));
+        MoveProposal valid = bent.createRandomNeighborWithStatus(new ControlledAnnealingRandom(new int[]{0, 1}));
+        check(collision.status() == MoveProposal.Status.COLLISION && collision.candidate() == null,
+                "Metrics: endpoint-i mbi aminoacidin e dyte eshte perplasje");
+        check(unchanged.status() == MoveProposal.Status.NO_CHANGE && unchanged.candidate() == null,
+                "Metrics: endpoint-i ne vendin aktual eshte pa ndryshim, jo perplasje");
+        check(valid.status() == MoveProposal.Status.VALID && valid.candidate().isComplete()
+                        && sameCoordinates(bent, snapshot, 4),
+                "Metrics: propozimi i vlefshem krijon kandidat dhe ruan origjinalin");
+        Protein line = ExperimentRunner.initialProtein("HHHH");
+        check(line.createRandomNeighborWithStatus(new ControlledAnnealingRandom(new int[]{1, 1, 2, 1})).status()
+                        == MoveProposal.Status.COLLISION,
+                "Metrics: perplasja e segmentit pivot dallohet");
+        check(line.createRandomNeighborWithStatus(new ControlledAnnealingRandom(new int[]{1, 0, 0, 0})).status()
+                        == MoveProposal.Status.NO_CHANGE,
+                "Metrics: rrotullimi rreth boshtit te vijes eshte pa ndryshim");
+        ControlledAnnealingRandom choices = new ControlledAnnealingRandom(new int[]{0, 3, 0, 2, 0, 1, 0, 2}, 0.7);
+        AnnealingResult result = SimulatedAnnealing.optimizeWithStats(bent, 4, 2, 0.99, choices);
+        check(result.getAttempts() == 4 && result.getValidCandidates() == 2 && result.getAcceptedMoves() == 1
+                        && result.getCollisionProposals() == 1 && result.getGeometricallyInvalidProposals() == 1
+                        && result.getUnchangedProposals() == 1 && result.getDisconnectedProposals() == 0
+                        && result.getNoMoveProposals() == 0 && result.getOutOfRangeProposals() == 0,
+                "Metrics: SA numeron perplasjen, pa ndryshim, pranimin dhe refuzimin nga temperatura veçmas");
+        check(result.getBestProtein().calculateEnergy() == -1 && choices.intIndex == 8 && choices.doubleIndex == 1
+                        && sameCoordinates(bent, snapshot, 4),
+                "Metrics: numerimi nuk shton thirrje Random dhe ruan best-in e origjinalin");
+        AnnealingResult rejected = SimulatedAnnealing.optimizeWithStats(createSquare("HHHH"), 1, 2, 0.99,
+                new ControlledAnnealingRandom(new int[]{0, 2}, 0.7));
+        check(rejected.getValidCandidates() == 1 && rejected.getAcceptedMoves() == 0
+                        && rejected.getGeometricallyInvalidProposals() == 0 && rejected.getUnchangedProposals() == 0,
+                "Metrics: nje kandidat i refuzuar nga temperatura mbetet gjeometrikisht i vlefshem");
+        AnnealingResult single = SimulatedAnnealing.optimizeWithStats(ExperimentRunner.initialProtein("H"),
+                3, 2, 0.99, new ControlledAnnealingRandom(new int[0]));
+        check(single.getAttempts() == 3 && single.getNoMoveProposals() == 3
+                        && single.getGeometricallyInvalidProposals() == 0 && single.getUnchangedProposals() == 0,
+                "Metrics: proteina me nje pozicion nuk ka levizje, pa perplasje ose rastesi");
+        Protein boundary = createProtein("HH", new Position[]{new Position(Integer.MAX_VALUE, 0, 0),
+                new Position(Integer.MAX_VALUE, 1, 0)});
+        AnnealingResult outside = SimulatedAnnealing.optimizeWithStats(boundary, 1, 2, 0.99,
+                new ControlledAnnealingRandom(new int[]{0, 0}));
+        check(outside.getOutOfRangeProposals() == 1 && outside.getCollisionProposals() == 0
+                        && outside.getGeometricallyInvalidProposals() == 0,
+                "Metrics: tejkalimi int raportohet veç nga perplasja gjeometrike");
+        AnnealingResult stopped = SimulatedAnnealing.optimizeWithStats(bent, 4, 2, 0.99,
+                new ControlledAnnealingRandom(new int[]{0, 3, 0, 2}), 1, 1,
+                new ControlledNanoClock(0, 0, 0, 1_000_000));
+        check(stopped.getAttempts() == 2 && stopped.getCollisionProposals() == 1
+                        && stopped.getUnchangedProposals() == 1 && stopped.getStopReason() == StopReason.TIME_LIMIT,
+                "Metrics: SA ruan ndarjen e propozimeve edhe ne ndalim kohor");
+
+        ExtensionBatch first = new Protein("HH").createExtensionsWithStats();
+        check(first.proposals() == 1 && first.candidates().size() == 1 && first.collisionProposals() == 0,
+                "Metrics: origjina e Beam numeron nje propozim te vlefshem");
+        Protein edge = new Protein("HH");
+        edge.addPosition(new Position(Integer.MAX_VALUE, 0, 0));
+        ExtensionBatch edgeBatch = edge.createExtensionsWithStats();
+        check(edgeBatch.proposals() == 6 && edgeBatch.candidates().size() == 5
+                        && edgeBatch.outOfRangeProposals() == 1 && edgeBatch.collisionProposals() == 0,
+                "Metrics: gjashte drejtimet numerohen edhe kur njeri tejkalon int");
+        BeamSearchResult hhh = BeamSearch.searchWithStats("HHH", 2, false);
+        check(hhh.getExtensionProposals() == 19 && hhh.getGeneratedCandidates() == 17
+                        && hhh.getCollisionProposals() == 2 && hhh.getGeometricallyInvalidProposals() == 2
+                        && hhh.getOutOfRangeProposals() == 0,
+                "Metrics: Beam numeron kthimet mbi prinderit si perplasje gjate gjenerimit");
+        check(hhh.getGeneratedCandidates() == hhh.getRetainedCandidates() + hhh.getRotatedDuplicates()
+                        + hhh.getPrunedCandidates(),
+                "Metrics: largimet nga gjeresia mbeten propozime te vlefshme");
+        BeamSearchResult hh = BeamSearch.searchWithStats("HH", 30, true);
+        check(hh.getGeneratedCandidates() == 7 && hh.getRotatedDuplicates() == 5
+                        && Math.abs(hh.getEliminatedCandidatesPercentage() - 100.0 * 5 / 7) < 1e-10,
+                "Metrics: perqindja totale HH perfshin origjinen, jo vetem gjashte drejtimet");
+        BeamSearchResult timed = BeamSearch.searchWithStats("HHHH", 2, 1, false, 1,
+                new ControlledNanoClock(0, 0, 0, 0, 1_000_000));
+        check(timed.getExtensionProposals() == hhh.getExtensionProposals()
+                        && timed.getCollisionProposals() == hhh.getCollisionProposals()
+                        && timed.getBestProtein() == null && timed.getStopReason() == StopReason.TIME_LIMIT,
+                "Metrics: Beam numeron nivelin e perfunduar para kontrollit pasues te kohes");
+        check(HeapUsage.toMiB(1_048_576) == 1.0 && HeapUsage.toMiB(524_288) == 0.5,
+                "Metrics: MiB konvertohet nga byte me 1024 ne katror");
     }
 
     private static class ControlledNanoClock implements LongSupplier {

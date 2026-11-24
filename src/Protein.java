@@ -50,6 +50,10 @@ public class Protein {
     }
 
     public boolean tryMoveLast(Position newPosition) {
+        return moveLastStatus(newPosition) == MoveProposal.Status.VALID;
+    }
+
+    private MoveProposal.Status moveLastStatus(Position newPosition) {
         if (newPosition == null) {
             throw new IllegalArgumentException("Pozicioni i ri nuk mund te jete null.");
         }
@@ -59,30 +63,34 @@ public class Protein {
         }
 
         if (positions.size() < 2) {
-            return false;
+            return MoveProposal.Status.NO_MOVE;
         }
 
         int lastIndex = positions.size() - 1;
         if (positions.get(lastIndex).isSamePosition(newPosition)) {
-            return false;
+            return MoveProposal.Status.NO_CHANGE;
         }
 
         if (!positions.get(lastIndex - 1).isNeighbor(newPosition)) {
-            return false;
+            return MoveProposal.Status.DISCONNECTED;
         }
 
         for (int i = 0; i < lastIndex; i++) {
             if (positions.get(i).isSamePosition(newPosition)) {
-                return false;
+                return MoveProposal.Status.COLLISION;
             }
         }
 
         // Zevendeso pozicionin vetem pasi te kalojne te gjitha kontrollet.
         positions.set(lastIndex, new Position(newPosition.x, newPosition.y, newPosition.z));
-        return true;
+        return MoveProposal.Status.VALID;
     }
 
     public boolean tryPivotRotation(int pivotIndex, char axis, int quarterTurns) {
+        return pivotRotationStatus(pivotIndex, axis, quarterTurns) == MoveProposal.Status.VALID;
+    }
+
+    private MoveProposal.Status pivotRotationStatus(int pivotIndex, char axis, int quarterTurns) {
         if (pivotIndex < 0 || pivotIndex >= positions.size()) {
             throw new IllegalArgumentException("Indeksi i pivot-it eshte jashte listes.");
         }
@@ -96,7 +104,7 @@ public class Protein {
             throw new IllegalStateException("Rrotullimi kerkon nje proteine te plote dhe te vlefshme.");
         }
         if (pivotIndex == positions.size() - 1) {
-            return false;
+            return MoveProposal.Status.NO_MOVE;
         }
 
         Protein candidate = copy();
@@ -133,7 +141,7 @@ public class Protein {
             if (newX < Integer.MIN_VALUE || newX > Integer.MAX_VALUE
                     || newY < Integer.MIN_VALUE || newY > Integer.MAX_VALUE
                     || newZ < Integer.MIN_VALUE || newZ > Integer.MAX_VALUE) {
-                return false;
+                return MoveProposal.Status.OUT_OF_RANGE;
             }
 
             Position rotated = new Position((int) newX, (int) newY, (int) newZ);
@@ -143,18 +151,26 @@ public class Protein {
             }
         }
 
-        if (!changed || !candidate.isValid()) {
-            return false;
+        if (!changed) {
+            return MoveProposal.Status.NO_CHANGE;
+        }
+        // Rrotullimi rigid ruan lidhjet; pa overflow, pavlefshmeria ketu eshte mbivendosje.
+        if (!candidate.isValid()) {
+            return MoveProposal.Status.COLLISION;
         }
 
         // Origjinali ndryshohet vetem pas validimit; prefiksi mbetet i paprekur.
         for (int i = pivotIndex + 1; i < positions.size(); i++) {
             positions.set(i, candidate.positions.get(i));
         }
-        return true;
+        return MoveProposal.Status.VALID;
     }
 
     public Protein createRandomNeighbor(Random random) {
+        return createRandomNeighborWithStatus(random).candidate();
+    }
+
+    MoveProposal createRandomNeighborWithStatus(Random random) {
         if (random == null) {
             throw new IllegalArgumentException("Random nuk mund te jete null.");
         }
@@ -162,7 +178,7 @@ public class Protein {
             throw new IllegalStateException("Kandidati kerkon nje proteine te plote dhe te vlefshme.");
         }
         if (positions.size() < 2) {
-            return null;
+            return new MoveProposal(null, MoveProposal.Status.NO_MOVE);
         }
 
         Protein candidate = copy();
@@ -191,37 +207,37 @@ public class Protein {
             if (x < Integer.MIN_VALUE || x > Integer.MAX_VALUE
                     || y < Integer.MIN_VALUE || y > Integer.MAX_VALUE
                     || z < Integer.MIN_VALUE || z > Integer.MAX_VALUE) {
-                return null;
+                return new MoveProposal(null, MoveProposal.Status.OUT_OF_RANGE);
             }
-            if (candidate.tryMoveLast(new Position((int) x, (int) y, (int) z))) {
-                return candidate;
-            }
+            MoveProposal.Status status = candidate.moveLastStatus(new Position((int) x, (int) y, (int) z));
+            return new MoveProposal(status == MoveProposal.Status.VALID ? candidate : null, status);
         } else {
             int pivotIndex = random.nextInt(positions.size() - 1);
             char[] axes = {'X', 'Y', 'Z'};
             char axis = axes[random.nextInt(axes.length)];
             int quarterTurns = random.nextInt(3) + 1;
-            if (candidate.tryPivotRotation(pivotIndex, axis, quarterTurns)) {
-                return candidate;
-            }
+            MoveProposal.Status status = candidate.pivotRotationStatus(pivotIndex, axis, quarterTurns);
+            return new MoveProposal(status == MoveProposal.Status.VALID ? candidate : null, status);
         }
-
-        return null;
     }
 
     public ArrayList<Protein> createExtensions() {
+        return createExtensionsWithStats().candidates();
+    }
+
+    ExtensionBatch createExtensionsWithStats() {
         ArrayList<Protein> extensions = new ArrayList<>();
         if (positions.isEmpty()) {
             Protein first = copy();
             first.addPosition(new Position(0, 0, 0));
             extensions.add(first);
-            return extensions;
+            return new ExtensionBatch(extensions, 1, 0, 0);
         }
         if (!isValid()) {
             throw new IllegalStateException("Zgjatja kerkon nje strukture te vlefshme.");
         }
         if (positions.size() == hpSequence.length()) {
-            return extensions;
+            return new ExtensionBatch(extensions, 0, 0, 0);
         }
 
         Position last = positions.get(positions.size() - 1);
@@ -229,13 +245,18 @@ public class Protein {
                 {1, 0, 0}, {-1, 0, 0}, {0, 1, 0},
                 {0, -1, 0}, {0, 0, 1}, {0, 0, -1}
         };
+        int proposals = 0;
+        int collisions = 0;
+        int outOfRange = 0;
         for (int[] direction : directions) {
+            proposals++;
             long x = (long) last.x + direction[0];
             long y = (long) last.y + direction[1];
             long z = (long) last.z + direction[2];
             if (x < Integer.MIN_VALUE || x > Integer.MAX_VALUE
                     || y < Integer.MIN_VALUE || y > Integer.MAX_VALUE
                     || z < Integer.MIN_VALUE || z > Integer.MAX_VALUE) {
+                outOfRange++;
                 continue;
             }
 
@@ -251,9 +272,11 @@ public class Protein {
                 Protein extension = copy();
                 extension.addPosition(next);
                 extensions.add(extension);
+            } else {
+                collisions++;
             }
         }
-        return extensions;
+        return new ExtensionBatch(extensions, proposals, collisions, outOfRange);
     }
 
     public boolean isValid() {

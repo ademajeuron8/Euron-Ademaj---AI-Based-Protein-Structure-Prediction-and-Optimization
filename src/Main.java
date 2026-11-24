@@ -170,28 +170,39 @@ public class Main {
             System.out.println("Simulated Annealing");
             System.out.println("Energjia fillestare: " + protein.calculateEnergy(contactWeight));
             Random random = new Random(seed);
+            long saHeapBefore = HeapUsage.usedBytes();
             long saStart = System.nanoTime();
             AnnealingResult saStats = SimulatedAnnealing.optimizeWithStats(protein, maxIterations, initialTemperature,
                     coolingRate, random, timeLimitMillis, contactWeight);
             long saElapsedNanos = System.nanoTime() - saStart;
+            long saHeapAfter = HeapUsage.usedBytes();
             Protein best = saStats.getBestProtein();
             showResult(best, hpSequence, contactWeight);
             System.out.println("Perpjekjet: " + saStats.getAttempts());
             System.out.println("Kandidatet e vlefshem: " + saStats.getValidCandidates());
             System.out.println("Levizjet e pranuara: " + saStats.getAcceptedMoves());
             System.out.println("Perpjekjet pa kandidat: " + (saStats.getAttempts() - saStats.getValidCandidates()));
+            System.out.println("Propozimet gjeometrikisht te pavlefshme: "
+                    + saStats.getGeometricallyInvalidProposals() + " (perplasje=" + saStats.getCollisionProposals()
+                    + ", lidhje te keputura=" + saStats.getDisconnectedProposals() + ")");
+            System.out.println("Propozimet pa ndryshim: " + saStats.getUnchangedProposals()
+                    + "; pa levizje te mundshme: " + saStats.getNoMoveProposals()
+                    + "; jashte kufijve int: " + saStats.getOutOfRangeProposals());
             System.out.println("Kandidatet e refuzuar nga rregulli i pranimit: "
                     + (saStats.getValidCandidates() - saStats.getAcceptedMoves()));
             System.out.println("Arsyeja e ndalimit: " + saStats.getStopReason().getDescription());
             System.out.printf(Locale.ROOT, "Koha e ekzekutimit: %.3f ms%n", saElapsedNanos / 1_000_000.0);
+            showHeapUsage(saHeapBefore, saHeapAfter);
 
             System.out.println();
             System.out.println("Beam Search");
             System.out.println("Gjeresia: " + beamWidth);
+            long beamHeapBefore = HeapUsage.usedBytes();
             long beamStart = System.nanoTime();
             BeamSearchResult beamStats = BeamSearch.searchWithStats(hpSequence, beamWidth, timeLimitMillis,
                     removeRotatedCopies, contactWeight);
             long beamElapsedNanos = System.nanoTime() - beamStart;
+            long beamHeapAfter = HeapUsage.usedBytes();
             Protein beamResult = beamStats.getBestProtein();
             if (beamResult == null) {
                 System.out.println("Kerkimi nuk arriti te ndertoje nje strukture te plote.");
@@ -200,12 +211,21 @@ public class Main {
             }
             System.out.println("Strukturat e zgjeruara: " + beamStats.getExpandedStates());
             System.out.println("Kandidatet e gjeneruar: " + beamStats.getGeneratedCandidates());
+            System.out.println("Propozimet per zgjatje: " + beamStats.getExtensionProposals()
+                    + "; gjeometrikisht te pavlefshme (perplasje): " + beamStats.getGeometricallyInvalidProposals()
+                    + "; jashte kufijve int: " + beamStats.getOutOfRangeProposals());
             System.out.println("Kandidatet e ruajtur gjithsej gjate niveleve: " + beamStats.getRetainedCandidates());
             System.out.println("Kopjet e hequra nga rrotullimi: " + beamStats.getRotatedDuplicates());
             System.out.println("Kandidatet e larguar nga kufiri i gjeresise: " + beamStats.getPrunedCandidates());
+            Double eliminatedPercentage = beamStats.getEliminatedCandidatesPercentage();
+            System.out.println("Përqindja e kandidatëve të gjeneruar që u eliminuan: "
+                    + (eliminatedPercentage == null ? "N/A"
+                    : String.format(Locale.ROOT, "%.2f%%", eliminatedPercentage)));
+            System.out.println("Maksimumi i kandidateve ne pritje: " + beamStats.getMaxCandidatesBeforeSelection());
             System.out.println("Nivelet e perfunduara: " + beamStats.getCompletedLevels());
             System.out.println("Arsyeja e ndalimit: " + beamStats.getStopReason().getDescription());
             System.out.printf(Locale.ROOT, "Koha e ekzekutimit: %.3f ms%n", beamElapsedNanos / 1_000_000.0);
+            showHeapUsage(beamHeapBefore, beamHeapAfter);
             if (readExportChoice(scanner)) {
                 try {
                     Path html = StructureExporter.export(Path.of("exports"), best, beamResult,
@@ -216,6 +236,12 @@ public class Main {
                 }
             }
         }
+    }
+
+    private static void showHeapUsage(long before, long after) {
+        System.out.printf(Locale.ROOT, "Heap i perdorur i JVM-se para/pas kerkimit (MiB): %.3f / %.3f%n",
+                HeapUsage.toMiB(before), HeapUsage.toMiB(after));
+        System.out.println("Dy lexime te heap-it te perbashket te JVM-se; jo piku ose memorie ekskluzive e algoritmit.");
     }
 
     private static boolean readExportChoice(Scanner scanner) {

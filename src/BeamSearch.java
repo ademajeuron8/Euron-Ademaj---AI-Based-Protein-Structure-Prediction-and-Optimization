@@ -85,17 +85,24 @@ public class BeamSearch {
         long prunedCandidates = 0;
         int completedLevels = 0;
         int maxCandidatesBeforeSelection = 0;
+        long extensionProposals = 0;
+        long collisions = 0;
+        long outOfRange = 0;
 
         for (int step = 0; step < hpSequence.length(); step++) {
             if (limit.isExpired()) {
                 return new BeamSearchResult(null, expandedStates, generatedCandidates,
                         retainedCandidates, rotatedDuplicates, prunedCandidates, completedLevels,
-                        StopReason.TIME_LIMIT, maxCandidatesBeforeSelection);
+                        StopReason.TIME_LIMIT, maxCandidatesBeforeSelection, extensionProposals, collisions, outOfRange);
             }
             ArrayList<Protein> candidates = new ArrayList<>();
             for (Protein protein : beam) {
                 expandedStates++;
-                candidates.addAll(protein.createExtensions());
+                ExtensionBatch extensions = protein.createExtensionsWithStats();
+                candidates.addAll(extensions.candidates());
+                extensionProposals += extensions.proposals();
+                collisions += extensions.collisionProposals();
+                outOfRange += extensions.outOfRangeProposals();
             }
             generatedCandidates += candidates.size();
             // Mat listen e perbashket para heqjes se kopjeve dhe para kufirit te gjeresise.
@@ -103,7 +110,7 @@ public class BeamSearch {
             if (candidates.isEmpty()) {
                 return new BeamSearchResult(null, expandedStates, generatedCandidates,
                         retainedCandidates, rotatedDuplicates, prunedCandidates, completedLevels,
-                        StopReason.NO_CANDIDATES, maxCandidatesBeforeSelection);
+                        StopReason.NO_CANDIDATES, maxCandidatesBeforeSelection, extensionProposals, collisions, outOfRange);
             }
             if (removeRotatedCopies) {
                 int beforeRemoval = candidates.size();
@@ -118,7 +125,7 @@ public class BeamSearch {
 
         return new BeamSearchResult(beam.get(0), expandedStates, generatedCandidates,
                 retainedCandidates, rotatedDuplicates, prunedCandidates, completedLevels,
-                StopReason.COMPLETED, maxCandidatesBeforeSelection);
+                StopReason.COMPLETED, maxCandidatesBeforeSelection, extensionProposals, collisions, outOfRange);
     }
 
     // Kandidatet vijne nga i njejti nivel dhe kane te njejten sekuence HP.

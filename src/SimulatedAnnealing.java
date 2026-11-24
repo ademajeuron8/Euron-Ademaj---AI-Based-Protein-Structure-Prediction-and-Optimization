@@ -78,13 +78,28 @@ public class SimulatedAnnealing {
         int attempts = 0;
         int validCandidates = 0;
         int acceptedMoves = 0;
+        int collisions = 0;
+        int disconnected = 0;
+        int unchanged = 0;
+        int noMove = 0;
+        int outOfRange = 0;
 
         for (int iteration = 0; iteration < maxIterations; iteration++) {
             if (limit.isExpired()) {
-                return new AnnealingResult(best, attempts, validCandidates, acceptedMoves, StopReason.TIME_LIMIT);
+                return new AnnealingResult(best, attempts, validCandidates, acceptedMoves, StopReason.TIME_LIMIT,
+                        collisions, disconnected, unchanged, noMove, outOfRange);
             }
             attempts++;
-            Protein candidate = current.createRandomNeighbor(random);
+            MoveProposal proposal = current.createRandomNeighborWithStatus(random);
+            switch (proposal.status()) {
+                case COLLISION -> collisions++;
+                case DISCONNECTED -> disconnected++;
+                case NO_CHANGE -> unchanged++;
+                case NO_MOVE -> noMove++;
+                case OUT_OF_RANGE -> outOfRange++;
+                case VALID -> { }
+            }
+            Protein candidate = proposal.candidate();
             if (candidate != null) {
                 validCandidates++;
                 long candidateEnergy = candidate.calculateEnergy(contactWeight);
@@ -103,7 +118,8 @@ public class SimulatedAnnealing {
             temperature *= coolingRate;
         }
 
-        return new AnnealingResult(best, attempts, validCandidates, acceptedMoves, StopReason.ITERATION_LIMIT);
+        return new AnnealingResult(best, attempts, validCandidates, acceptedMoves, StopReason.ITERATION_LIMIT,
+                collisions, disconnected, unchanged, noMove, outOfRange);
     }
 
     public static boolean shouldAccept(int currentEnergy, int candidateEnergy,

@@ -15,7 +15,10 @@ final class ExperimentRow {
             "remove_rotated_copies", "time_limit_ms", "energy", "hh_contacts", "elapsed_ms", "status", "stop_reason",
             "attempts", "valid_candidates", "accepted_moves", "expanded_states", "generated_candidates",
             "retained_candidates", "rotated_duplicates", "pruned_candidates", "completed_levels",
-            "max_candidates_before_selection");
+            "max_candidates_before_selection", "proposals", "valid_proposals", "geometrically_invalid_proposals",
+            "collision_proposals", "disconnected_proposals", "unchanged_proposals", "no_move_proposals",
+            "out_of_range_proposals", "temperature_rejected_candidates", "heap_used_before_mib",
+            "heap_used_after_mib", "generated_candidates_eliminated_percent");
     private final LinkedHashMap<String, String> values = new LinkedHashMap<>();
 
     private ExperimentRow() {
@@ -55,6 +58,12 @@ final class ExperimentRow {
 
     static ExperimentRow fromAnnealing(ExperimentRunner.Trial trial, int weight, double temperature,
                                        double coolingRate, long elapsedNanos, AnnealingResult result) {
+        return fromAnnealing(trial, weight, temperature, coolingRate, elapsedNanos, result, null, null);
+    }
+
+    static ExperimentRow fromAnnealing(ExperimentRunner.Trial trial, int weight, double temperature,
+                                       double coolingRate, long elapsedNanos, AnnealingResult result,
+                                       Long heapBefore, Long heapAfter) {
         ExperimentRow row = base(trial, weight, elapsedNanos, result.getBestProtein(), result.getStopReason());
         row.put("max_iterations", trial.iterations());
         row.put("initial_temperature", temperature);
@@ -63,10 +72,25 @@ final class ExperimentRow {
         row.put("attempts", result.getAttempts());
         row.put("valid_candidates", result.getValidCandidates());
         row.put("accepted_moves", result.getAcceptedMoves());
+        row.put("proposals", result.getAttempts());
+        row.put("valid_proposals", result.getValidCandidates());
+        row.put("geometrically_invalid_proposals", result.getGeometricallyInvalidProposals());
+        row.put("collision_proposals", result.getCollisionProposals());
+        row.put("disconnected_proposals", result.getDisconnectedProposals());
+        row.put("unchanged_proposals", result.getUnchangedProposals());
+        row.put("no_move_proposals", result.getNoMoveProposals());
+        row.put("out_of_range_proposals", result.getOutOfRangeProposals());
+        row.put("temperature_rejected_candidates", result.getValidCandidates() - result.getAcceptedMoves());
+        row.putHeapUsage(heapBefore, heapAfter);
         return row;
     }
 
     static ExperimentRow fromBeam(ExperimentRunner.Trial trial, int weight, long elapsedNanos, BeamSearchResult result) {
+        return fromBeam(trial, weight, elapsedNanos, result, null, null);
+    }
+
+    static ExperimentRow fromBeam(ExperimentRunner.Trial trial, int weight, long elapsedNanos, BeamSearchResult result,
+                                  Long heapBefore, Long heapAfter) {
         ExperimentRow row = base(trial, weight, elapsedNanos, result.getBestProtein(), result.getStopReason());
         row.put("beam_width", trial.beamWidth());
         row.put("remove_rotated_copies", trial.removeRotatedCopies());
@@ -77,7 +101,23 @@ final class ExperimentRow {
         row.put("pruned_candidates", result.getPrunedCandidates());
         row.put("completed_levels", result.getCompletedLevels());
         row.put("max_candidates_before_selection", result.getMaxCandidatesBeforeSelection());
+        row.put("proposals", result.getExtensionProposals());
+        row.put("valid_proposals", result.getGeneratedCandidates());
+        row.put("geometrically_invalid_proposals", result.getGeometricallyInvalidProposals());
+        row.put("collision_proposals", result.getCollisionProposals());
+        row.put("out_of_range_proposals", result.getOutOfRangeProposals());
+        Double percentage = result.getEliminatedCandidatesPercentage();
+        row.put("generated_candidates_eliminated_percent", percentage == null ? "N/A"
+                : String.format(Locale.ROOT, "%.6f", percentage));
+        row.putHeapUsage(heapBefore, heapAfter);
         return row;
+    }
+
+    private void putHeapUsage(Long before, Long after) {
+        put("heap_used_before_mib", before == null ? null
+                : String.format(Locale.ROOT, "%.6f", HeapUsage.toMiB(before)));
+        put("heap_used_after_mib", after == null ? null
+                : String.format(Locale.ROOT, "%.6f", HeapUsage.toMiB(after)));
     }
 
     static void writeCsv(Path file, List<ExperimentRow> rows) throws IOException {

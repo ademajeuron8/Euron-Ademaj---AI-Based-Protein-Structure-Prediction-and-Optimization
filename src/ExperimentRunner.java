@@ -89,19 +89,24 @@ public class ExperimentRunner {
         if (trial.algorithm().equals("SA")) {
             Protein initial = initialProtein(trial.sequence());
             Random random = new Random(trial.seed());
+            long heapBefore = HeapUsage.usedBytes();
             long start = System.nanoTime();
             AnnealingResult result = SimulatedAnnealing.optimizeWithStats(initial, trial.iterations(),
                     INITIAL_TEMPERATURE, COOLING_RATE, random, trial.timeLimitMillis(), CONTACT_WEIGHT);
             long elapsed = System.nanoTime() - start;
-            return ExperimentRow.fromAnnealing(trial, CONTACT_WEIGHT, INITIAL_TEMPERATURE, COOLING_RATE, elapsed, result);
+            long heapAfter = HeapUsage.usedBytes();
+            return ExperimentRow.fromAnnealing(trial, CONTACT_WEIGHT, INITIAL_TEMPERATURE, COOLING_RATE,
+                    elapsed, result, heapBefore, heapAfter);
         }
         if (!trial.algorithm().equals("Beam")) {
             throw new IllegalArgumentException("Algoritem i panjohur: " + trial.algorithm());
         }
+        long heapBefore = HeapUsage.usedBytes();
         long start = System.nanoTime();
         BeamSearchResult result = BeamSearch.searchWithStats(trial.sequence(), trial.beamWidth(),
                 trial.timeLimitMillis(), trial.removeRotatedCopies(), CONTACT_WEIGHT);
         long elapsed = System.nanoTime() - start;
-        return ExperimentRow.fromBeam(trial, CONTACT_WEIGHT, elapsed, result);
+        long heapAfter = HeapUsage.usedBytes();
+        return ExperimentRow.fromBeam(trial, CONTACT_WEIGHT, elapsed, result, heapBefore, heapAfter);
     }
 }

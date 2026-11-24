@@ -21,6 +21,12 @@ Shembull: `HHHH` në `(0,0,0) → (1,0,0) → (1,1,0) → (0,1,0)` ka **tri lidh
 
 Kufiri kohor është opsional dhe i veçantë për secilin kërkim; hapi i nisur përfundon. SA kthen `best`; Beam pa strukturë të plotë kthen `null`. Regjistrohet arsyeja e ndalimit.
 
+SA u zgjodh sepse mund të dalë nga një minimum lokal duke pranuar përkohësisht përkeqësime. Beam lejon krahasimin me një ndërtim determinist, ku gjerësia kontrollon sa degë ruhen. Asnjëri nuk garanton minimumin global në këtë implementim.
+
+`ArrayList` ruan rendin e aminoacideve dhe të kandidatëve, lejon qasje sipas indeksit dhe renditjen e qëndrueshme. `HashSet` përdoret vetëm për çelësat e formave të rrotulluara në Beam: zbulon shpejt kopjet, ndërsa një listë më vete ruan rendin e kandidatëve të parë. Validimi gjeometrik vazhdon me cikle të thjeshta.
+
+Për konvergjencën krahasojmë energjinë më të mirë të **strukturës së plotë** të SA pas disa numrash iteracionesh. Beam ndërton **struktura të pjesshme**, një nivel pas tjetrit. Energjia e prefiksit nuk është e barasvlershme me rezultatin final; krahasimi mes algoritmeve përdor vetëm strukturat e plota.
+
 ## Kompleksiteti sipas implementimit
 
 `n` = gjatësia e sekuencës, `I` = përpjekjet e SA, `B` = gjerësia e Beam. Kufijtë vlejnë pa kufi kohor; hapësira tregon objektet aktive, pa eksportin CSV/HTML.
@@ -33,6 +39,15 @@ Kufiri kohor është opsional dhe i veçantë për secilin kërkim; hapi i nisur
 Kopja e pjesshme kontrollon edhe sekuencën e plotë: `O(n + k)` për kopje, deri në `O(B n²)` gjithsej, brenda kufirit të Beam. Çelësi i 24 rrotullimeve kushton `O(k)` për kandidat; tabela supozon sjelljen mesatare të kërkimit në `HashSet`. Çelësat zënë deri në `O(B n)` hapësirë.
 
 Kufijtë teorikë tregojnë rritjen e punës. Milisekondat maten me `System.nanoTime()` vetëm rreth kërkimit dhe ndikohen nga JVM-ja, GC-ja dhe kompjuteri; nuk janë kohë fikse të garantuara.
+
+## Si lexohen metrikat
+
+- **SA:** një propozim është një përpjekje për lëvizje; struktura fillestare nuk numërohet. Kandidati i vlefshëm por i refuzuar nga temperatura mbetet i vlefshëm. Përplasja/lidhja e këputur, lëvizja pa ndryshim, mungesa e lëvizjes (p.sh. një aminoacid) dhe tejkalimi i kufijve `int` numërohen veçmas. `attempts = valid_candidates + geometrically_invalid_proposals + unchanged_proposals + no_move_proposals + out_of_range_proposals`. Këto janë ngjarje, jo numër formash unike.
+- **Beam:** një propozim është njëri nga gjashtë drejtimet e provuara për çdo prind. Vendosja e parë në origjinë numërohet si një propozim i vlefshëm. Zgjatja mbi një pozicion të zënë është gjeometrikisht e pavlefshme; drejtimi jashtë kufijve `int` raportohet veçmas. `proposals = generated_candidates + collision_proposals + out_of_range_proposals`. Kandidatët e gjeneruar përfshijnë prefikset e vlefshme, edhe kur më pas hiqen si kopje ose nga gjerësia.
+- **Përqindja e kandidatëve të gjeneruar që u eliminuan:** për Beam është `100 × (rotated_duplicates + pruned_candidates) / generated_candidates`, mbi të gjitha nivelet e përfunduara; emëruesi zero shfaqet `N/A`. Nuk është pjesa e eliminuar e gjithë hapësirës teorike dhe nuk zbatohet për refuzimet e temperaturës në SA. Për `HH`, me heqjen e rrotullimeve: niveli i dytë ka 6 kandidatë dhe 5 kopje; bashkë me origjinën ka 7 kandidatë gjithsej, ndaj përqindja totale është `5/7 × 100 ≈ 71.43%`.
+- **Heap i përdorur i JVM-së para/pas kërkimit (MiB):** të dy algoritmet përdorin dy lexime me `MemoryMXBean`, përreth së njëjtës thirrje që matet për kohën. `1 MiB = 1 048 576 byte`. Leximet nuk përfshijnë eksportin/grafikët në intervalin e kërkimit, por heap-i është i përbashkët me programin dhe mund të përmbajë objekte që presin GC. As dy leximet, as diferenca e tyre nuk janë piku ose memoria ekskluzive e algoritmit; vlera pas mund të jetë më e ulët. Nuk detyrohet GC.
+
+Main dhe raporti shfaqin metrikat; CSV-ja ruan numëruesit dhe kolonat `heap_used_before_mib` / `heap_used_after_mib`. Maksimumi i kandidatëve në pritje mbetet tregues më vete për Beam, jo MiB. Më shumë përpjekje në SA rrisin punën pa ruajtur histori; më shumë kandidatë në Beam rrisin punën dhe hapësirën aktive. Matjet konkrete ilustrojnë këto kosto, por nuk zëvendësojnë kufijtë asimptotikë dhe nuk garantojnë se një konfigurim është gjithmonë më i shpejtë.
 
 ## Ekzekutimi në IntelliJ
 

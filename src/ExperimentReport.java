@@ -33,13 +33,15 @@ public class ExperimentReport {
                 </style></head><body>
                 <p class="eyebrow">PROTEIN FOLDING · MATJE REALE</p><h1>Simulated Annealing dhe Beam Search</h1>
                 <p>Raporti gjenerohet nga <a href="results.csv">results.csv</a>. Vlera më negative e energjisë tregon më shumë kontakte H–H për të njëjtën sekuencë dhe peshë.</p>
-                <nav><a href="#baseline">Pa kufi kohor</a><a href="#time_limited">Me kufi kohor</a><a href="#progress">Përmirësimi i SA</a><a href="#rotation">Kopjet e rrotulluara</a><a href="#raw">Të gjitha provat</a></nav>
+                <nav><a href="#baseline">Pa kufi kohor</a><a href="#time_limited">Me kufi kohor</a><a href="#progress">Përmirësimi i SA</a><a href="#rotation">Kopjet e rrotulluara</a><a href="#metrics">Metrikat</a><a href="#raw">Të gjitha provat</a></nav>
                 <div class="note">
                 <strong>Si u matën</strong>
                 <p>Para provave bëhet një kërkim ngrohjeje për secilin algoritëm; këto dy kërkime nuk regjistrohen. Matja me System.nanoTime përfshin vetëm thirrjen e kërkimit, përfshirë validimin e tij të brendshëm. Ndërtimi i vijës fillestare, Random, shkrimi i CSV-së dhe gjenerimi i raportit mbeten jashtë intervalit.</p>
                 <p>SA përdor të njëjtën vijë fillestare për çdo seed. Raportohen energjia më e mirë dhe mediana nga pesë seed-et, ndërsa për kohën përdoret mediana. Beam pa kufi kohor është determinist: për secilin konfigurim regjistrohet një provë; ndryshimet e kohës nuk janë zgjidhje të ndryshme.</p>
                 <p>Kufiri kohor kontrollohet midis hapave; hapi i nisur përfundon, ndaj koha totale mund ta kalojë kufirin. SA mund të kthejë strukturë të plotë edhe kur ndalet nga koha. Beam pa strukturë të plotë ka energji dhe kontakte bosh në CSV, dhe shfaqet si “Pa strukturë”.</p>
                 <p><code>max_candidates_before_selection</code> është maksimumi i kandidatëve të mbledhur nga të gjithë prindërit në një nivel, para heqjes së kopjeve dhe para beamWidth. Ky është tregues i madhësisë së listës, jo MB apo matje e gjithë memories: nuk përfshin prindërit, kopjet, çelësat dhe shpenzimet e JVM-së. Për SA kjo fushë mbetet bosh.</p>
+                <p>Për të dy algoritmet, MemoryMXBean jep heap-in e përdorur të JVM-së menjëherë para/pas thirrjes së kërkimit (MiB = 1 048 576 byte). Leximet janë jashtë matjes së kohës; eksporti, CSV-ja dhe grafikët nuk përfshihen në intervalin e kërkimit. Heap-i ndahet me pjesën tjetër të programit, përfshin objekte ende të pambledhura nga GC dhe mund të ulet. Këto dy lexime dhe diferenca e tyre nuk matin pikun ose memorien ekskluzive të algoritmit. Nuk detyrohet GC.</p>
+                <p>SA përmirëson një strukturë të plotë gjatë iteracioneve; grafiku i përmirësimit tregon best-in e plotë. Beam ndërton prefikse deri në nivelin e fundit: energjia e një prefiksi nuk është e barasvlershme me energjinë finale. Grafikët e krahasimit përdorin vetëm rezultate të plota.</p>
                 <p>Kohët ndikohen nga JIT, GC, rendi i provave dhe ngarkesa e kompjuterit. Një ngrohje dhe një provë Beam për konfigurim nuk përbëjnë një benchmark të plotë statistikor. Energjitë janë rezultate të kërkimit të kryer; energjia më e ulët e gjetur nuk pretendohet minimum global.</p>
                 </div>
                 """);
@@ -47,6 +49,7 @@ public class ExperimentReport {
         page.append(comparison(rows, "time_limited", "Krahasimi shtesë · kufi i veçantë për çdo kërkim"));
         page.append(progress(rows));
         page.append(rotations(rows));
+        page.append(metrics(rows));
         page.append("<section id=\"raw\"><h2>Të gjitha provat</h2><p>").append(rows.size())
                 .append(" rreshta të matur. Fushat e pazbatueshme mbeten bosh; koha është në ms dhe kufiri 0 do të thotë pa kufi.</p>")
                 .append("<details><summary>Hap tabelën e plotë të CSV-së</summary><div class=\"scroll raw\"><table><thead><tr>");
@@ -63,6 +66,45 @@ public class ExperimentReport {
         }
         page.append("</tbody></table></div></details></section></body></html>");
         Files.writeString(html, page.toString(), StandardCharsets.UTF_8, StandardOpenOption.CREATE_NEW);
+    }
+
+    private static String metrics(List<ExperimentRow> rows) {
+        StringBuilder html = new StringBuilder("""
+                <section id="metrics"><h2>Propozimet dhe memoria</h2>
+                <p>Një propozim SA është një përpjekje për lëvizje, edhe kur nuk ka lëvizje të mundshme. Një propozim Beam është një drejtim nga një prind; vendosja fillestare në origjinë numërohet si një propozim. Numërohen ngjarje, jo forma unike. Kandidatët e vlefshëm të Beam përfshijnë prefikset, kopjet e rrotulluara dhe kandidatët e larguar nga gjerësia.</p>
+                <p>Pavlefshmëria gjeometrike përfshin përplasjen ose lidhjen e këputur. Lëvizja pa ndryshim, mungesa e lëvizjes dhe koordinatat jashtë int raportohen veçmas. Refuzimi nga temperatura në SA mbetet kandidat i vlefshëm.</p>
+                <p>Përqindja e kandidatëve të gjeneruar që u eliminuan = 100 × (kopjet e rrotulluara + largimet nga gjerësia) / kandidatët e vlefshëm të gjeneruar, në të gjitha nivelet e përfunduara. Emëruesi zero jep N/A. Kjo nuk është përqindje e gjithë hapësirës së mundshme dhe nuk zbatohet për refuzimet e SA.</p>
+                <div class="scroll"><table><thead><tr><th>Prova</th>
+                """);
+        String[] columns = {"proposals", "valid_proposals", "geometrically_invalid_proposals", "collision_proposals",
+                "disconnected_proposals", "unchanged_proposals", "no_move_proposals", "out_of_range_proposals",
+                "temperature_rejected_candidates", "heap_used_before_mib", "heap_used_after_mib",
+                "max_candidates_before_selection", "generated_candidates_eliminated_percent"};
+        String[] labels = {"Propozime", "Të vlefshme", "Gjeometrikisht të pavlefshme", "Përplasje",
+                "Lidhje të këputura", "Pa ndryshim", "Pa lëvizje", "Jashtë int", "Refuzuar nga temperatura",
+                "Heap JVM para (MiB)", "Heap JVM pas (MiB)", "Maks. kandidatë në pritje",
+                "Përqindja e kandidatëve të gjeneruar që u eliminuan"};
+        for (String label : labels) {
+            html.append("<th>").append(label).append("</th>");
+        }
+        html.append("</tr></thead><tbody>");
+        for (ExperimentRow row : rows) {
+            String label = row.get("group") + " · " + row.get("sequence_id") + " · " + row.get("algorithm")
+                    + (row.get("algorithm").equals("SA") ? " · seed=" + row.get("seed")
+                    + " · I=" + row.get("max_iterations") : " · B=" + row.get("beam_width")
+                    + " · rrotullime=" + row.get("remove_rotated_copies"));
+            html.append("<tr><td>").append(escape(label)).append("</td>");
+            for (String column : columns) {
+                String value = row.get(column);
+                if (column.equals("generated_candidates_eliminated_percent")
+                        && !value.isEmpty() && !value.equals("N/A")) {
+                    value += "%";
+                }
+                html.append("<td>").append(escape(value.isEmpty() ? "—" : value)).append("</td>");
+            }
+            html.append("</tr>");
+        }
+        return html.append("</tbody></table></div></section>").toString();
     }
 
     private static String comparison(List<ExperimentRow> rows, String group, String title) {
