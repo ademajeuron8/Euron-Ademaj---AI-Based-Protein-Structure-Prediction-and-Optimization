@@ -1,5 +1,8 @@
 final class StructureViewer {
-    static String html(String data) {
+    static String html(String data, boolean hasReport) {
+        String reportContent = hasReport
+                ? "<iframe id=\"experiment-report\" src=\"report.html\" title=\"Raporti i disa provave të Simulated Annealing dhe Beam Search\" loading=\"lazy\"></iframe>"
+                : "<p class=\"report-note\">Ekzekuto ExperimentRunner dhe eksporto sërish pamjen 3D</p>";
         return """
                 <!doctype html>
                 <html lang="sq">
@@ -26,9 +29,16 @@ final class StructureViewer {
                 .dot{width:13px;height:13px;border-radius:50%;display:inline-block}.h{background:#44d5b2}.p{background:#b7a0ff}
                 .line{width:24px;border-top:3px solid #a4b6ca}.contact{border-top:2px dashed #f3bb60}
                 a{color:#82e4ca;display:inline-block;margin-top:24px;text-underline-offset:4px;font-size:13px}
-                .viewer{overflow:hidden}.toolbar{display:flex;justify-content:space-between;align-items:center;padding:17px 22px;border-bottom:1px solid #263346;gap:10px}
-                #algorithm{font-weight:650}button{background:#1c2a3e;color:#eef5fc;border:1px solid #425169;border-radius:8px;padding:8px 12px;cursor:pointer}
-                button:hover{background:#2a3b53}button:focus-visible,select:focus-visible,canvas:focus-visible,a:focus-visible{outline:2px solid #63ddbd;outline-offset:3px}
+                .viewer{overflow:hidden}.toolbar{display:flex;justify-content:space-between;align-items:center;padding:17px 22px;border-bottom:1px solid #263346;gap:10px;flex-wrap:wrap}
+                .toolbar-actions{display:flex;gap:8px;flex-wrap:wrap}.report-button{margin:0;text-decoration:none;font-size:inherit}
+                .report-note{margin:0;padding:12px 22px;color:#efcb8e;font-size:13px;border-bottom:1px solid #263346}
+                #view-3d,#experiment-statistics{scroll-margin-top:24px}
+                .experiment-statistics{margin-top:48px;padding-top:24px;border-top:1px solid #263346}
+                .stats-heading{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap}
+                .stats-heading h2{margin:0;font-size:25px}.stats-description{color:#a4b2c5;line-height:1.6}
+                #experiment-report{display:block;width:100%;height:85vh;min-height:600px;border:1px solid #263346;border-radius:14px;background:#0b111b}
+                #algorithm{font-weight:650}button,.report-button{background:#1c2a3e;color:#eef5fc;border:1px solid #425169;border-radius:8px;padding:8px 12px;cursor:pointer}
+                button:hover:not(:disabled),.report-button:hover{background:#2a3b53}button:disabled{opacity:.55;cursor:default}button:focus-visible,select:focus-visible,canvas:focus-visible,a:focus-visible{outline:2px solid #63ddbd;outline-offset:3px}
                 .canvas-wrap{height:560px;position:relative;background:radial-gradient(ellipse at center,#17263a 0%,#0d1522 75%)}
                 canvas{display:block;width:100%;height:100%;touch-action:none;cursor:grab}canvas:active{cursor:grabbing}
                 .help{padding:15px 22px;color:#a4b2c5;font-size:12px;border-top:1px solid #263346;display:flex;justify-content:space-between;gap:12px}
@@ -39,7 +49,7 @@ final class StructureViewer {
                 </head>
                 <body>
                 <header><div><p class="eyebrow">STRUKTURA NË RRJETËN KUBIKE</p><h1>Protein folding</h1><p>Eksploro strukturën e gjetur, nga çdo kënd.</p></div><span class="badge">Pamje interaktive 3D</span></header>
-                <main>
+                <main id="view-3d">
                 <aside>
                 <label for="result">REZULTATI</label><select id="result" aria-label="Zgjidh algoritmin"></select>
                 <div class="metrics">
@@ -54,13 +64,18 @@ final class StructureViewer {
                 <a id="csv" download>Shkarko koordinatat CSV</a>
                 </aside>
                 <section class="viewer" aria-label="Pamja tredimensionale e proteinës">
-                <div class="toolbar"><span id="algorithm"></span><button id="reset" type="button">Rikthe pamjen</button></div>
+                <div class="toolbar"><span id="algorithm"></span><div class="toolbar-actions"><button id="reset" type="button">Rikthe pamjen</button><a id="report-link" class="report-button" href="#experiment-statistics">Shiko statistikat dhe grafikët</a></div></div>
                 <div class="canvas-wrap"><canvas id="structure" tabindex="0" aria-label="Struktura 3D. Rrotullo me maus ose shigjeta; zmadho me rrotë ose plus dhe minus."></canvas></div>
                 <div class="help"><span>Tërhiq për rrotullim · Rrota për zmadhim</span><span id="bond-count"></span></div>
                 </section>
                 </main>
                 <p id="notice" hidden></p>
                 <footer>Numrat pranë pikave janë indekset e sekuencës, duke filluar nga 0. Rrotullimi ndryshon vetëm pamjen; koordinatat në CSV mbeten origjinale.</footer>
+                <section id="experiment-statistics" class="experiment-statistics" aria-labelledby="statistics-title">
+                <div class="stats-heading"><h2 id="statistics-title">Statistikat e eksperimenteve</h2><a id="back-to-3d" class="report-button" href="#view-3d">Kthehu te pamja 3D</a></div>
+                <p class="stats-description">Ky raport krahason disa prova të Simulated Annealing dhe Beam Search, me sekuenca dhe parametra të ndryshëm. Statistikat nuk i përkasin vetëm strukturës 3D të zgjedhur sipër.</p>
+                __REPORT_CONTENT__
+                </section>
                 <noscript><p>Aktivizo JavaScript në shfletues për të përdorur pamjen interaktive.</p></noscript>
                 <script id="protein-data" type="application/json">__PROTEIN_DATA__</script>
                 <script>
@@ -183,6 +198,6 @@ final class StructureViewer {
                 </script>
                 </body>
                 </html>
-                """.replace("__PROTEIN_DATA__", data);
+                """.replace("__PROTEIN_DATA__", data).replace("__REPORT_CONTENT__", reportContent);
     }
 }

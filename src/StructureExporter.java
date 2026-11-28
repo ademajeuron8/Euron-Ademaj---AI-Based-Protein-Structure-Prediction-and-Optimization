@@ -1,11 +1,14 @@
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.charset.MalformedInputException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.nio.file.attribute.FileTime;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.stream.Stream;
 
 public class StructureExporter {
     // Merr vetem rezultatet e gjetura; nuk nis asnje kerkim te ri.
@@ -40,6 +43,8 @@ public class StructureExporter {
         data.append("]}");
 
         Path root = exportsRoot.toAbsolutePath().normalize();
+        // Main i ruan exports/ dhe experiments/ si dosje motra.
+        Path report = findLatestReport(root.resolveSibling("experiments"));
         Files.createDirectories(root);
         String prefix = "run-" + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss")) + "-";
         Path directory = Files.createTempDirectory(root, prefix);
@@ -49,9 +54,48 @@ public class StructureExporter {
         if (hasBeam) {
             writeNew(directory.resolve("beam.csv"), csv(beam));
         }
+        if (report != null) {
+            Files.copy(report, directory.resolve("report.html"));
+            Files.copy(report.resolveSibling("results.csv"), directory.resolve("results.csv"));
+        }
         Path html = directory.resolve("structure.html");
-        writeNew(html, StructureViewer.html(data.toString()));
+        writeNew(html, StructureViewer.html(data.toString(), report != null));
         return html;
+    }
+
+    private static Path findLatestReport(Path experimentsRoot) throws IOException {
+        if (!Files.isDirectory(experimentsRoot)) {
+            return null;
+        }
+        Path latest = null;
+        FileTime latestTime = null;
+        try (Stream<Path> entries = Files.list(experimentsRoot)) {
+            for (Path directory : entries.filter(Files::isDirectory).toList()) {
+                Path report = directory.resolve("report.html");
+                Path csv = directory.resolve("results.csv");
+                // ExperimentRunner shkruan raportin pas CSV-se. Mos merr nje shkrim te paperfunduar.
+                if (!Files.isRegularFile(report) || !Files.isRegularFile(csv) || Files.size(csv) == 0) {
+                    continue;
+                }
+                String page;
+                try {
+                    page = Files.readString(report, StandardCharsets.UTF_8);
+                } catch (MalformedInputException e) {
+                    // Shkrimi mund te jete nderprere ne mes te nje karakteri UTF-8.
+                    continue;
+                }
+                if (!page.stripTrailing().endsWith("</html>")) {
+                    continue;
+                }
+                FileTime finished = Files.getLastModifiedTime(report);
+                if (latest == null || finished.compareTo(latestTime) > 0
+                        || (finished.equals(latestTime) && report.toString().compareTo(latest.toString()) > 0)) {
+                    latest = report;
+                    latestTime = finished;
+                }
+            }
+        }
+        return latest;
     }
 
     private static void writeNew(Path file, String text) throws IOException {

@@ -1,6 +1,7 @@
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.FileTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -104,6 +105,7 @@ public class ProteinTests {
         testWeightedAnnealing();
         testWeightedBeamSearch();
         testStructureExport();
+        testExportedExperimentReport();
         testExperimentPlan();
         testExperimentResults();
         testProposalMetrics();
@@ -1667,7 +1669,7 @@ public class ProteinTests {
                             && data.contains("\"name\":\"Simulated Annealing\"") && data.contains("\"name\":\"Beam Search\""),
                     "Export: katrori ne HTML ka 3 lidhje, vetem kontaktin 0-3 dhe energji -2 per te dy rezultatet");
             String page = Files.readString(html);
-            check(!page.contains("http:") && !page.contains("https:") && !page.contains("src=")
+            check(!page.contains("http:") && !page.contains("https:")
                             && !page.contains("fetch(") && page.contains("id=\"result\"")
                             && page.contains("id=\"reset\"") && page.contains("id=\"structure\""),
                     "Export: HTML permban te dhenat dhe kontrollet pa burime te jashtme");
@@ -1756,6 +1758,134 @@ public class ProteinTests {
                 throw new AssertionError("Nuk u pastrua dosja e perkohshme e testit.", e);
             }
         }
+    }
+
+    private static void testExportedExperimentReport() {
+        Path temporary;
+        try {
+            temporary = Files.createTempDirectory("protein-report-export-tests-");
+        } catch (IOException e) {
+            throw new AssertionError("Nuk u krijua dosja e perkohshme e raportit.", e);
+        }
+        try {
+            Path project = temporary.resolve("project");
+            Path exports = project.resolve("exports");
+            Path experiments = project.resolve("experiments");
+            Protein square = createSquare("HHHH");
+            Path withoutReport = StructureExporter.export(exports, square, square, 1, StopReason.COMPLETED);
+            String fallback = Files.readString(withoutReport);
+            check(fallback.contains("Ekzekuto ExperimentRunner dhe eksporto sërish pamjen 3D")
+                            && fallback.contains("href=\"#experiment-statistics\"")
+                            && fallback.contains("href=\"#view-3d\"")
+                            && !fallback.contains("<iframe"),
+                    "Report export: pa experiments ruhen navigimi dhe pamja 3D; seksioni shfaq udhezimin");
+            check(!Files.exists(withoutReport.resolveSibling("report.html"))
+                            && !Files.exists(withoutReport.resolveSibling("results.csv")),
+                    "Report export: nuk krijohen raporte ose CSV boshe si zevendesim");
+
+            Path missingCsv = experiments.resolve("run-missing-csv");
+            Files.createDirectories(missingCsv);
+            Files.writeString(missingCsv.resolve("report.html"), "<html>pa CSV</html>");
+            Path incompleteOnly = StructureExporter.export(exports, square, square, 1, StopReason.COMPLETED);
+            check(Files.readString(incompleteOnly).contains("Ekzekuto ExperimentRunner dhe eksporto sërish pamjen 3D"),
+                    "Report export: vetem nje report.html pa results.csv nuk eshte raport i perfunduar");
+
+            Path older = writeTestExperimentReport(experiments.resolve("run-z-old"),
+                    ExperimentRunner.initialProtein("HHHH"), 1000);
+            Path latest = writeTestExperimentReport(experiments.resolve("run-a-new"), square, 2000);
+            String sourceReport = Files.readString(latest);
+            String sourceCsv = Files.readString(latest.resolveSibling("results.csv"));
+            // Datat kontrollohen nga testi, pa sleep dhe pa varesi nga shpejtesia e kompjuterit.
+            Files.setLastModifiedTime(missingCsv.resolve("report.html"), FileTime.fromMillis(5000));
+            Path missingReport = experiments.resolve("run-missing-report");
+            Files.createDirectories(missingReport);
+            Files.copy(latest.resolveSibling("results.csv"), missingReport.resolve("results.csv"));
+            Path truncated = experiments.resolve("run-truncated");
+            Files.createDirectories(truncated);
+            Files.copy(latest.resolveSibling("results.csv"), truncated.resolve("results.csv"));
+            Files.writeString(truncated.resolve("report.html"), "<html>ende duke u shkruar");
+            Files.setLastModifiedTime(truncated.resolve("report.html"), FileTime.fromMillis(6000));
+            Path emptyCsv = experiments.resolve("run-empty-csv");
+            Files.createDirectories(emptyCsv);
+            Files.writeString(emptyCsv.resolve("results.csv"), "");
+            Files.writeString(emptyCsv.resolve("report.html"), "<html>CSV bosh</html>");
+            Files.setLastModifiedTime(emptyCsv.resolve("report.html"), FileTime.fromMillis(7000));
+            Path brokenUtf8 = experiments.resolve("run-broken-utf8");
+            Files.createDirectories(brokenUtf8);
+            Files.copy(latest.resolveSibling("results.csv"), brokenUtf8.resolve("results.csv"));
+            Files.write(brokenUtf8.resolve("report.html"), new byte[]{(byte) 0xC3});
+            Files.setLastModifiedTime(brokenUtf8.resolve("report.html"), FileTime.fromMillis(8000));
+
+            Path html = StructureExporter.export(exports, square, square, 1, StopReason.COMPLETED);
+            String page = Files.readString(html);
+            check(Files.mismatch(latest, html.resolveSibling("report.html")) == -1
+                            && !Files.readString(older).equals(Files.readString(html.resolveSibling("report.html"))),
+                    "Report export: zgjidhet raporti i perfunduar sipas dates, jo emrit ose nje shkrimi te pjesshem");
+            check(Files.mismatch(latest.resolveSibling("results.csv"), html.resolveSibling("results.csv")) == -1,
+                    "Report export: results.csv kopjohet nga e njejta prove si report.html");
+            check(page.contains("id=\"report-link\" class=\"report-button\" href=\"#experiment-statistics\"")
+                            && page.contains("Rikthe pamjen</button><a")
+                            && page.contains("id=\"back-to-3d\" class=\"report-button\" href=\"#view-3d\"")
+                            && !page.contains("target=\"_blank\"")
+                            && !page.contains("Ekzekuto ExperimentRunner dhe eksporto sërish pamjen 3D"),
+                    "Report export: butoni prane reset dhe lidhja e kthimit perdorin ankorat e se njejtes faqe");
+            check(page.contains("<iframe id=\"experiment-report\" src=\"report.html\"")
+                            && page.contains("Statistikat e eksperimenteve")
+                            && page.contains("disa prova të Simulated Annealing dhe Beam Search")
+                            && page.indexOf("<section id=\"experiment-statistics\"") > page.indexOf("</main>"),
+                    "Report export: raporti ekzistues integrohet poshte 3D-se dhe shpjegohet krahasimi i disa provave");
+            check(!page.contains(temporary.toString()) && !page.contains("file:") && !page.contains("http:"),
+                    "Report export: pamja nuk ka shtigje absolute ose varesi nga nje server");
+            check(Files.readString(latest).equals(sourceReport)
+                            && Files.readString(latest.resolveSibling("results.csv")).equals(sourceCsv),
+                    "Report export: raporti dhe CSV-ja origjinale mbeten te pandryshuara");
+
+            String proteinData = exportedData(html);
+            Path relocatedParent = temporary.resolve("another-computer");
+            Files.createDirectories(relocatedParent);
+            Path relocated = Files.move(html.getParent(), relocatedParent.resolve("export"));
+            Files.move(experiments, temporary.resolve("original-experiments-unavailable"));
+            Path relocatedHtml = relocated.resolve("structure.html");
+            java.net.URI down = relocatedHtml.toUri().resolve("#experiment-statistics");
+            java.net.URI up = down.resolve("#view-3d");
+            check(down.getPath().equals(relocatedHtml.toUri().getPath())
+                            && up.getPath().equals(relocatedHtml.toUri().getPath())
+                            && down.getFragment().equals("experiment-statistics") && up.getFragment().equals("view-3d")
+                            && page.contains("id=\"experiment-statistics\"") && page.contains("id=\"view-3d\""),
+                    "Report export: te dy drejtimet e navigimit mbeten brenda structure.html pas zhvendosjes");
+            Path reportLink = Path.of(relocatedHtml.toUri().resolve("report.html"));
+            Path csvLink = Path.of(reportLink.toUri().resolve("results.csv"));
+            check(reportLink.equals(relocated.resolve("report.html")) && Files.readString(reportLink).equals(sourceReport),
+                    "Report export: raporti i integruar gjendet pas zhvendosjes pa experiments origjinale");
+            check(Files.readString(reportLink).contains("href=\"results.csv\"")
+                            && csvLink.equals(relocated.resolve("results.csv")) && Files.readString(csvLink).equals(sourceCsv),
+                    "Report export: lidhja e CSV-se ne raport vazhdon te funksionoje offline pas zhvendosjes");
+            check(exportedData(relocatedHtml).equals(proteinData) && sameCoordinates(square, createSquare("HHHH"), 4),
+                    "Report export: koordinatat dhe te dhenat 3D ruhen gjate eksportit dhe zhvendosjes");
+        } catch (IOException e) {
+            throw new AssertionError("Deshtim gjate testit te raportit ne eksport.", e);
+        } finally {
+            try (Stream<Path> files = Files.walk(temporary)) {
+                for (Path file : files.sorted(Comparator.reverseOrder()).toList()) {
+                    Files.delete(file);
+                }
+            } catch (IOException e) {
+                throw new AssertionError("Nuk u pastrua dosja e perkohshme e raportit.", e);
+            }
+        }
+    }
+
+    private static Path writeTestExperimentReport(Path directory, Protein result, long finishedMillis) throws IOException {
+        Files.createDirectories(directory);
+        ExperimentRunner.Trial trial = new ExperimentRunner.Trial("baseline", "short", "HHHH", "SA", 0, 2025L, 0, false, 0);
+        ExperimentRow row = ExperimentRow.fromAnnealing(trial, 1, 2, 0.995, 0,
+                new AnnealingResult(result, 0, 0, 0));
+        Path csv = directory.resolve("results.csv");
+        ExperimentRow.writeCsv(csv, List.of(row));
+        Path report = directory.resolve("report.html");
+        ExperimentReport.write(csv, report);
+        Files.setLastModifiedTime(report, FileTime.fromMillis(finishedMillis));
+        return report;
     }
 
     private static String exportedData(Path html) throws IOException {
